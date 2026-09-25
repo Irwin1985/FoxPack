@@ -9,3 +9,4 @@ dist/
 FOXUSER.*
 .foxforge-build.txt
 tests/tmp/
+installers/output/
