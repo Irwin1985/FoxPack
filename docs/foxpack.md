@@ -65,7 +65,8 @@ foxpack add github:user/mylib --yes
 
 Download exactly what foxpack.lock says
 
-For a fresh clone, or to repair a damaged copy.
+For a fresh clone, or to repair a damaged copy. A library whose copy
+already matches is left alone.
 
 ```
 foxpack restore [opciones]

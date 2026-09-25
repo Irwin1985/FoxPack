@@ -30,15 +30,208 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
     *!* @example foxpack add jsonfox@13.1
     *!* @example foxpack add github:user/mylib --yes
     PROCEDURE Add(tcLibrary AS String, tcProject AS String, tlYes AS Logical)
-        RETURN THIS.TodaviaNo("add")
+        LOCAL lcCarpeta, loCandado, lcSpec, lcVersion, lcNombre, lcRepo, llDeGithub, lnPos
+        LOCAL loRemoto, loIndice, loEntrada, loEtiquetas, loEtq, loManif, lcTexto
+        LOCAL loActual, loInst, loLib, loF, lnI, lcCambios
+
+        lcCarpeta = THIS.Carpeta(tcProject)
+        IF EMPTY(lcCarpeta)
+            RETURN FP_EXIT_NO_PROJECT
+        ENDIF
+        loCandado = THIS.LeerCandado(lcCarpeta)
+        IF ISNULL(loCandado)
+            RETURN FP_EXIT_NO_PROJECT
+        ENDIF
+
+        *-- «jsonfox», «jsonfox@13.1», «github:usuario/repo» o
+        *-- «github:usuario/repo@1.0». La versión va detrás de la última @.
+        lcSpec = ALLTRIM(tcLibrary)
+        lcVersion = ""
+        lnPos = RAT("@", lcSpec)
+        IF lnPos > 0
+            lcVersion = ALLTRIM(SUBSTR(lcSpec, lnPos + 1))
+            lcSpec = ALLTRIM(LEFT(lcSpec, lnPos - 1))
+        ENDIF
+        llDeGithub = LOWER(LEFT(lcSpec, 7)) == "github:"
+        loRemoto = NEWOBJECT("Remoto", "remoto.prg")
+
+        *-- 1. De qué repo sale.
+        IF llDeGithub
+            lcRepo = ALLTRIM(SUBSTR(lcSpec, 8))
+            IF !loRemoto.RepoValido(lcRepo)
+                Console.Error("foxpack: " + loRemoto.cFallo)
+                RETURN EXIT_FAILED
+            ENDIF
+            IF !THIS.Confirmar("'" + lcRepo + "' is not in the FoxPack index. Its code will be " + ;
+                    "compiled into your program.", tlYes)
+                RETURN EXIT_FAILED
+            ENDIF
+        ELSE
+            lcTexto = loRemoto.TextoIndice()
+            IF EMPTY(lcTexto)
+                Console.Error("foxpack: cannot read the index: " + loRemoto.cFallo)
+                RETURN FP_EXIT_DOWNLOAD
+            ENDIF
+            loIndice = NEWOBJECT("Indice", "indice.prg")
+            IF !loIndice.Leer(lcTexto)
+                Console.Error("foxpack: " + loIndice.cFallo)
+                RETURN FP_EXIT_DOWNLOAD
+            ENDIF
+            loEntrada = loIndice.Buscar(lcSpec)
+            IF ISNULL(loEntrada)
+                Console.Error("foxpack: '" + lcSpec + "' is not in the FoxPack index. " + ;
+                    "For a library on GitHub, use github:user/repo")
+                RETURN FP_EXIT_NOT_FOUND
+            ENDIF
+            lcRepo = loEntrada.cRepo
+        ENDIF
+
+        *-- 2. Qué versión, y en qué commit está.
+        lcTexto = loRemoto.TextoEtiquetas(lcRepo)
+        IF EMPTY(lcTexto)
+            Console.Error("foxpack: cannot read the tags of " + lcRepo + ": " + loRemoto.cFallo)
+            RETURN IIF(loRemoto.lNoExiste, FP_EXIT_NOT_FOUND, FP_EXIT_DOWNLOAD)
+        ENDIF
+        loEtiquetas = NEWOBJECT("Etiquetas", "indice.prg")
+        IF !loEtiquetas.Leer(lcTexto)
+            Console.Error("foxpack: " + loEtiquetas.cFallo)
+            RETURN FP_EXIT_DOWNLOAD
+        ENDIF
+        IF EMPTY(lcVersion)
+            loEtq = loEtiquetas.Ultima()
+        ELSE
+            loEtq = loEtiquetas.Elegir(lcVersion)
+        ENDIF
+        IF ISNULL(loEtq)
+            IF loEtiquetas.oLista.Count = 0
+                Console.Error("foxpack: " + lcRepo + " has no version tags (like v1.0)")
+            ELSE
+                Console.Error("foxpack: " + lcRepo + " has no version " + lcVersion + ;
+                    ". Versions: " + loEtiquetas.Todas())
+            ENDIF
+            RETURN FP_EXIT_NOT_FOUND
+        ENDIF
+
+        *-- 3. Su foxpack.json en ese commit, y que diga lo mismo que la
+        *-- etiqueta: una etiqueta v13.1.1 con un manifiesto 13.1 es justo
+        *-- el lío que esto viene a evitar.
+        lcTexto = loRemoto.TextoFichero(lcRepo, loEtq.cCommit, "foxpack.json")
+        IF EMPTY(lcTexto)
+            IF loRemoto.lNoExiste
+                Console.Error("foxpack: " + lcRepo + " has no foxpack.json at " + loEtq.cEtiqueta)
+                RETURN FP_EXIT_BAD_MANIFEST
+            ENDIF
+            Console.Error("foxpack: " + loRemoto.cFallo)
+            RETURN FP_EXIT_DOWNLOAD
+        ENDIF
+        loManif = NEWOBJECT("Manifiesto", "manifiesto.prg")
+        IF !loManif.Leer(lcTexto)
+            Console.Error("foxpack: " + lcRepo + "@" + loEtq.cEtiqueta + ": " + loManif.cFallo)
+            RETURN FP_EXIT_BAD_MANIFEST
+        ENDIF
+        IF !(loEtiquetas.SinV(loManif.cVersion) == loEtq.cVersion)
+            Console.Error("foxpack: " + lcRepo + ": the tag says " + loEtq.cVersion + ;
+                " and foxpack.json says " + loManif.cVersion)
+            RETURN FP_EXIT_BAD_MANIFEST
+        ENDIF
+        IF !llDeGithub AND !(loManif.cNombre == LOWER(lcSpec))
+            Console.Error("foxpack: the index calls it '" + LOWER(lcSpec) + ;
+                "' and its foxpack.json calls it '" + loManif.cNombre + "'")
+            RETURN FP_EXIT_BAD_MANIFEST
+        ENDIF
+        lcNombre = loManif.cNombre
+
+        *-- 4. Si ya está: con el mismo commit no hay nada que hacer; con
+        *-- otro, se cambia, pero no si alguien ha tocado la copia.
+        loActual = loCandado.Buscar(lcNombre)
+        IF !ISNULL(loActual)
+            IF loActual.cCommit == loEtq.cCommit
+                Console.WriteLine(lcNombre + " " + loActual.cVersion + " is already installed")
+                RETURN EXIT_OK
+            ENDIF
+            lcCambios = THIS.CopiasTocadas(lcCarpeta, loActual)
+            IF !EMPTY(lcCambios)
+                Console.Error("foxpack: lib\" + lcNombre + " has local changes (" + lcCambios + ;
+                    "). A library's copy is never edited: fix it in its repository.")
+                RETURN FP_EXIT_CHANGED
+            ENDIF
+        ENDIF
+
+        *-- 5. Bajar, entera o nada, y apuntarla.
+        loInst = NEWOBJECT("Instalador", "instalador.prg")
+        loLib = loInst.Instalar(lcCarpeta, lcNombre, lcRepo, loEtq.cCommit, loManif.oFicheros, .NULL.)
+        IF ISNULL(loLib)
+            Console.Error("foxpack: " + loInst.cFallo)
+            RETURN EVL(loInst.nCodigo, EXIT_FAILED)
+        ENDIF
+        loLib.cVersion = loEtq.cVersion
+        IF !ISNULL(loActual)
+            loCandado.oLibrerias.Remove(LOWER(lcNombre))
+        ENDIF
+        loCandado.oLibrerias.Add(loLib, LOWER(lcNombre))
+        IF !loCandado.Escribir(lcCarpeta + "foxpack.lock")
+            Console.Error("foxpack: " + loCandado.cFallo)
+            RETURN EXIT_FAILED
+        ENDIF
+
+        Console.WriteLine("Installed " + lcNombre + " " + loLib.cVersion + " (" + LEFT(loLib.cCommit, 7) + ;
+            ") in lib\" + lcNombre + "\")
+        FOR lnI = 1 TO loLib.oFicheros.Count
+            loF = loLib.oFicheros.Item(lnI)
+            Console.WriteLine("  lib\" + lcNombre + "\" + CHRTRAN(loF.cRuta, "/", "\"))
+        ENDFOR
+        IF !EMPTY(loManif.cUso)
+            Console.WriteLine("Use it with: " + loManif.cUso)
+        ENDIF
+        RETURN EXIT_OK
     ENDPROC
 
 
     *!* Download exactly what foxpack.lock says
-    *!* For a fresh clone, or to repair a damaged copy.
+    *!* For a fresh clone, or to repair a damaged copy. A library whose copy
+    *!* already matches is left alone.
     *!* @tcProject -p =.     Project folder
     PROCEDURE Restore(tcProject AS String)
-        RETURN THIS.TodaviaNo("restore")
+        LOCAL lcCarpeta, loCandado, loLib, loInst, loNueva, loRutas, loShas, loF
+        LOCAL lnI, lnJ, lnRes
+
+        lcCarpeta = THIS.Carpeta(tcProject)
+        IF EMPTY(lcCarpeta)
+            RETURN FP_EXIT_NO_PROJECT
+        ENDIF
+        loCandado = THIS.LeerCandado(lcCarpeta)
+        IF ISNULL(loCandado)
+            RETURN FP_EXIT_NO_PROJECT
+        ENDIF
+        IF loCandado.oLibrerias.Count = 0
+            Console.WriteLine("Nothing to restore: foxpack.lock lists no libraries")
+            RETURN EXIT_OK
+        ENDIF
+
+        lnRes = EXIT_OK
+        loInst = NEWOBJECT("Instalador", "instalador.prg")
+        FOR lnI = 1 TO loCandado.oLibrerias.Count
+            loLib = loCandado.oLibrerias.Item(lnI)
+            IF EMPTY(THIS.CopiasTocadas(lcCarpeta, loLib))
+                Console.WriteLine("ok        " + loLib.cNombre + " " + loLib.cVersion)
+                LOOP
+            ENDIF
+            loRutas = CREATEOBJECT("Collection")
+            loShas = CREATEOBJECT("Collection")
+            FOR lnJ = 1 TO loLib.oFicheros.Count
+                loF = loLib.oFicheros.Item(lnJ)
+                loRutas.Add(loF.cRuta)
+                loShas.Add(loF.cSha256)
+            ENDFOR
+            loNueva = loInst.Instalar(lcCarpeta, loLib.cNombre, loLib.cRepo, loLib.cCommit, loRutas, loShas)
+            IF ISNULL(loNueva)
+                Console.Error("foxpack: " + loLib.cNombre + ": " + loInst.cFallo)
+                lnRes = EVL(loInst.nCodigo, EXIT_FAILED)
+            ELSE
+                Console.WriteLine("restored  " + loLib.cNombre + " " + loLib.cVersion)
+            ENDIF
+        ENDFOR
+        RETURN lnRes
     ENDPROC
 
 
@@ -194,6 +387,47 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
             RETURN .NULL.
         ENDIF
         RETURN loCandado
+    ENDFUNC
+
+
+    *-- .T. si se puede seguir: con --yes, o si la persona dice que sí. Sin
+    *-- nadie delante (entrada redirigida) y sin --yes, no: un script que
+    *-- instala código ajeno tiene que decirlo con todas las letras.
+    PROTECTED FUNCTION Confirmar(tcAviso, tlYes)
+        LOCAL lcRespuesta
+        IF tlYes
+            RETURN .T.
+        ENDIF
+        IF Console.IsInputRedirected()
+            Console.Error("foxpack: " + tcAviso + " Run it again with --yes to install it.")
+            RETURN .F.
+        ENDIF
+        Console.WriteLine(tcAviso)
+        lcRespuesta = Console.Prompt("Install it? [y/N] ")
+        IF !ISNULL(lcRespuesta) AND (LOWER(ALLTRIM(lcRespuesta)) == "y" OR LOWER(ALLTRIM(lcRespuesta)) == "yes")
+            RETURN .T.
+        ENDIF
+        Console.Error("foxpack: cancelled")
+        RETURN .F.
+    ENDFUNC
+
+
+    *-- Los ficheros de una librería cuya copia no es la del candado, en
+    *-- texto («changed JsonFox.prg, missing otro.h»); vacío si están todos.
+    PROTECTED FUNCTION CopiasTocadas(tcCarpeta, toLib)
+        LOCAL loHuella, lnJ, loF, lcRuta, lcSha, lcSalida
+        loHuella = NEWOBJECT("Huella", "huella.prg")
+        lcSalida = ""
+        FOR lnJ = 1 TO toLib.oFicheros.Count
+            loF = toLib.oFicheros.Item(lnJ)
+            lcRuta = tcCarpeta + "lib\" + toLib.cNombre + "\" + CHRTRAN(loF.cRuta, "/", "\")
+            lcSha = loHuella.DeFichero(lcRuta)
+            IF !(lcSha == loF.cSha256)
+                lcSalida = lcSalida + IIF(EMPTY(lcSalida), "", ", ") + ;
+                    IIF(EMPTY(lcSha), "missing ", "changed ") + loF.cRuta
+            ENDIF
+        ENDFOR
+        RETURN lcSalida
     ENDFUNC
 
 

@@ -1,18 +1,19 @@
 *==================================================================
-* foxcli.h -- the exit codes of foxpack
+* foxcli.h -- los exit codes de foxpack
 *
-* What a command RETURNS is the process exit code: what whoever calls
-* the CLI from a script reads (%ERRORLEVEL%, $LASTEXITCODE). To SHOW a
-* result, write it with Console.WriteLine(); RETURN is only the code.
+* Lo que DEVUELVE un comando es el exit code del proceso: lo que lee
+* quien llama a la CLI desde un script (%ERRORLEVEL%, $LASTEXITCODE).
+* Para ENSEÑAR un resultado se escribe con Console.WriteLine(); el
+* RETURN es solo el código.
 *
-* 2 to 4 and 130 belong to the host: do not return them.
-*    2  malformed invocation         3  the component could not start
-*    4  internal host failure      130  cancelled with Ctrl+C
+* Del 2 al 4 y el 130 son del host: no los devuelvas.
+*    2  invocación mal formada       3  no se pudo activar el componente
+*    4  fallo interno del host     130  cancelado con Ctrl+C
 *
-* Yours run from 10 to 125. Declare them here, with a name:
+* Los tuyos van del 10 al 125. Decláralos aquí, con nombre:
 *    #DEFINE EXIT_NOT_FOUND  10
-* and in the command: RETURN EXIT_NOT_FOUND
+* y en el comando: RETURN EXIT_NOT_FOUND
 *==================================================================
 
-#DEFINE EXIT_OK      0    && all good: same as RETURN .T., or no RETURN at all
-#DEFINE EXIT_FAILED  1    && the command failed: same as RETURN .F.
+#DEFINE EXIT_OK      0    && todo bien: lo mismo que RETURN .T., o no poner RETURN
+#DEFINE EXIT_FAILED  1    && el comando falló: lo mismo que RETURN .F.

@@ -9,6 +9,9 @@
 *   «JsonFox.prg» intactos (por eso el formato usa listas y no claves), un
 *   fichero que sale igual cada vez, y los casos rotos.
 *
+* Manifiesto, Etiquetas, Indice y Remoto: foxpack.json y sus casos malos, las
+* etiquetas que son versión y cuál es la última, y lo que Remoto no deja pasar.
+*
 * FoxProof compila el .prg dentro de un EXECSCRIPT: rutas absolutas en Root().
 *--------------------------------------------------------------------------
 
@@ -211,6 +214,211 @@ DEFINE CLASS CandadoTests AS Custom
         loC = CREATEOBJECT("Candado")
         __assert.False(loC.Leer(lcRuta))
         __assert.True("twice" $ loC.cFallo, loC.cFallo)
+    ENDPROC
+
+ENDDEFINE
+
+
+DEFINE CLASS ManifiestoTests AS Custom
+
+    FUNCTION Root()
+        RETURN "C:\Desarrollo\IrwinRodriguez.dev\FoxPack\"
+    ENDFUNC
+
+    PROCEDURE SetUp
+        LOCAL lcSrc
+        lcSrc = THIS.Root() + "src"
+        SET PATH TO (lcSrc) ADDITIVE
+        SET PROCEDURE TO (THIS.Root() + "src\manifiesto.prg") ADDITIVE
+    ENDPROC
+
+    PROCEDURE TestUnoBueno() HELP [Fact]
+        LOCAL loM, loF
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.True(loM.Leer('{"name": "JsonFox", "version": "13.1.1", "license": "MIT", ' + ;
+            '"files": ["JsonFox.prg", "src\\jsonfox.h"], "usage": "x = 1"}'), loM.cFallo)
+        __assert.Equal("jsonfox", loM.cNombre)
+        __assert.Equal("13.1.1", loM.cVersion)
+        __assert.Equal("MIT", loM.cLicencia)
+        __assert.Equal("x = 1", loM.cUso)
+        __assert.Equal(2, loM.oFicheros.Count)
+        __assert.Equal("JsonFox.prg", loM.oFicheros.Item(1))
+        *-- Con la barra de GitHub, venga como venga.
+        __assert.Equal("src/jsonfox.h", loM.oFicheros.Item(2))
+    ENDPROC
+
+    PROCEDURE TestSinNombre() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"version": "1.0", "files": ["a.prg"]}'))
+        __assert.True("no name" $ loM.cFallo, loM.cFallo)
+    ENDPROC
+
+    PROCEDURE TestSinVersion() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "files": ["a.prg"]}'))
+        __assert.True("no version" $ loM.cFallo, loM.cFallo)
+    ENDPROC
+
+    PROCEDURE TestSoloPrgYH() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "version": "1.0", "files": ["a.vcx"]}'))
+        __assert.True(".prg or .h" $ loM.cFallo, loM.cFallo)
+    ENDPROC
+
+    PROCEDURE TestNadaFueraDelRepo() HELP [Fact]
+        *-- Un foxpack.json no puede escribir fuera de lib\<librería>\.
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "version": "1.0", "files": ["../../main.prg"]}'))
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "version": "1.0", "files": ["c:/windows/x.prg"]}'))
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "version": "1.0", "files": ["/x.prg"]}'))
+    ENDPROC
+
+    PROCEDURE TestListaVacia() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a", "version": "1.0", "files": []}'))
+        __assert.True("empty" $ loM.cFallo, loM.cFallo)
+    ENDPROC
+
+    PROCEDURE TestNombreRaro() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": "a b", "version": "1.0", "files": ["a.prg"]}'))
+    ENDPROC
+
+    PROCEDURE TestNoEsJson() HELP [Fact]
+        LOCAL loM
+        loM = CREATEOBJECT("Manifiesto")
+        __assert.False(loM.Leer('{"name": '))
+        __assert.NotEmpty(loM.cFallo)
+    ENDPROC
+
+ENDDEFINE
+
+
+DEFINE CLASS EtiquetasTests AS Custom
+
+    FUNCTION Root()
+        RETURN "C:\Desarrollo\IrwinRodriguez.dev\FoxPack\"
+    ENDFUNC
+
+    PROCEDURE SetUp
+        LOCAL lcSrc
+        lcSrc = THIS.Root() + "src"
+        SET PATH TO (lcSrc) ADDITIVE
+        SET PROCEDURE TO (THIS.Root() + "src\indice.prg") ADDITIVE
+    ENDPROC
+
+    *-- Como la API de GitHub, con las etiquetas viejas de JSONFox que no
+    *-- son versión.
+    FUNCTION TagsJson()
+        RETURN '[' + ;
+            '{"name": "v13.9", "commit": {"sha": "AAAA"}},' + ;
+            '{"name": "v13.10", "commit": {"sha": "bbbb"}},' + ;
+            '{"name": "2.0", "commit": {"sha": "cccc"}},' + ;
+            '{"name": "JSONFox911", "commit": {"sha": "dddd"}},' + ;
+            '{"name": "Jsonv917", "commit": {"sha": "eeee"}},' + ;
+            '{"name": "v1..2", "commit": {"sha": "ffff"}}' + ;
+            ']'
+    ENDFUNC
+
+    PROCEDURE TestSoloLasQueSonVersion() HELP [Fact]
+        LOCAL loE
+        loE = CREATEOBJECT("Etiquetas")
+        __assert.True(loE.Leer(THIS.TagsJson()), loE.cFallo)
+        __assert.Equal(3, loE.oLista.Count)
+        __assert.Equal("13.9, 13.10, 2.0", loE.Todas())
+    ENDPROC
+
+    PROCEDURE TestLaUltimaComoNumeros() HELP [Fact]
+        *-- 13.10 es más nueva que 13.9: como texto sería al revés.
+        LOCAL loE, loEtq
+        loE = CREATEOBJECT("Etiquetas")
+        loE.Leer(THIS.TagsJson())
+        loEtq = loE.Ultima()
+        __assert.Equal("v13.10", loEtq.cEtiqueta)
+        __assert.Equal("bbbb", loEtq.cCommit)
+    ENDPROC
+
+    PROCEDURE TestElegirConYSinV() HELP [Fact]
+        LOCAL loE, loEtq
+        loE = CREATEOBJECT("Etiquetas")
+        loE.Leer(THIS.TagsJson())
+        loEtq = loE.Elegir("13.9")
+        __assert.Equal("aaaa", loEtq.cCommit)
+        loEtq = loE.Elegir("v2.0")
+        __assert.Equal("cccc", loEtq.cCommit)
+        __assert.True(ISNULL(loE.Elegir("9.9")))
+    ENDPROC
+
+    PROCEDURE TestComparar() HELP [Fact]
+        LOCAL loE
+        loE = CREATEOBJECT("Etiquetas")
+        __assert.Equal(1, loE.Comparar("13.1.1", "13.1"))
+        __assert.Equal(-1, loE.Comparar("13.1", "13.1.1"))
+        __assert.Equal(0, loE.Comparar("2.0", "2.0"))
+        __assert.Equal(1, loE.Comparar("10.0", "9.99"))
+    ENDPROC
+
+    PROCEDURE TestSinEtiquetas() HELP [Fact]
+        LOCAL loE
+        loE = CREATEOBJECT("Etiquetas")
+        __assert.True(loE.Leer('[]'), loE.cFallo)
+        __assert.True(ISNULL(loE.Ultima()))
+    ENDPROC
+
+    PROCEDURE TestIndice() HELP [Fact]
+        LOCAL loI, loEnt
+        loI = CREATEOBJECT("Indice")
+        __assert.True(loI.Leer('{"indexVersion": 1, "libraries": [' + ;
+            '{"name": "JsonFox", "repo": "Irwin1985/JSONFox", "description": "d"},' + ;
+            '{"name": "sinrepo"}]}'), loI.cFallo)
+        loEnt = loI.Buscar("JSONFOX")
+        __assert.IsObject(loEnt)
+        __assert.Equal("Irwin1985/JSONFox", loEnt.cRepo)
+        __assert.True(ISNULL(loI.Buscar("sinrepo")))
+    ENDPROC
+
+ENDDEFINE
+
+
+DEFINE CLASS RemotoTests AS Custom
+
+    FUNCTION Root()
+        RETURN "C:\Desarrollo\IrwinRodriguez.dev\FoxPack\"
+    ENDFUNC
+
+    PROCEDURE SetUp
+        SET PROCEDURE TO (THIS.Root() + "src\remoto.prg") ADDITIVE
+    ENDPROC
+
+    PROCEDURE TestRepos() HELP [Fact]
+        LOCAL loR
+        loR = CREATEOBJECT("Remoto")
+        __assert.True(loR.RepoValido("Irwin1985/JSONFox"))
+        __assert.True(loR.RepoValido("a-b_c/d.e"))
+        __assert.False(loR.RepoValido("JSONFox"))
+        __assert.False(loR.RepoValido("a/b/c"))
+        __assert.False(loR.RepoValido("a/../b"))
+        __assert.False(loR.RepoValido("a b/c"))
+        __assert.False(loR.RepoValido("/a"))
+    ENDPROC
+
+    PROCEDURE TestRutas() HELP [Fact]
+        LOCAL loR
+        loR = CREATEOBJECT("Remoto")
+        __assert.True(loR.RutaValida("JsonFox.prg"))
+        __assert.True(loR.RutaValida("src/a.prg"))
+        __assert.False(loR.RutaValida("../a.prg"))
+        __assert.False(loR.RutaValida("c:\a.prg"))
+        __assert.False(loR.RutaValida("/a.prg"))
+        __assert.False(loR.RutaValida(""))
     ENDPROC
 
 ENDDEFINE

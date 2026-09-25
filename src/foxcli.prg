@@ -1,33 +1,33 @@
 *==================================================================
-* foxcli.prg -- the base class of the foxpack commands
+* foxcli.prg -- la clase base de los comandos de foxpack
 *
-* It belongs to FoxCli: do not change it. Your commands go in main.prg,
-* in the class that inherits from this one (AS FoxCliCommand OF
-* foxcli.prg). What the host needs in every command lives here:
-* THIS.oCon, THIS.oArgs and Console, the short form of THIS.oCon.
+* Es de FoxCli: no la cambies. Tus comandos van en main.prg, en la
+* clase que hereda de esta (AS FoxCliCommand OF foxcli.prg). Aquí vive
+* lo que el host necesita en cada comando: THIS.oCon, THIS.oArgs y
+* Console, la forma corta de THIS.oCon.
 *
-* When a new version of FoxForge changes it, building (Ctrl+F7) will
-* offer to update it. The line below is its version.
+* Cuando una versión nueva de FoxForge la cambie, al compilar (Ctrl+F7)
+* te ofrecerá actualizarla. La línea de abajo es su versión.
 *
 * FOXCLI-BASE 1
 *==================================================================
 
 DEFINE CLASS FoxCliCommand AS Session
 
-    *-- The host sets these before calling each command.
+    *-- Los pone el host antes de llamar a cada comando.
     oCon  = .NULL.
     oArgs = .NULL.
 
-    *-- Console is THIS.oCon with a short name: Console.WriteLine("Hello")
-    *-- is THIS.oCon.WriteLine("Hello"), with the same methods. It works
-    *-- across the whole program, a loose PROCEDURE or another class too.
+    *-- Console es THIS.oCon con un nombre corto: Console.WriteLine("Hola")
+    *-- es THIS.oCon.WriteLine("Hola"), con los mismos métodos. Vale en
+    *-- todo el programa, también en un PROCEDURE suelto o en otra clase.
     *--
-    *-- It is born here: the host sets oCon before calling the command,
-    *-- and this assign publishes it. PUBLIC and not PRIVATE because the
-    *-- host calls the command directly, with no VFP code in front that
-    *-- could declare a PRIVATE; every run of the CLI is a new process, so
-    *-- nothing is left hanging. Do not declare another LOCAL Console: it
-    *-- would hide this one in that method.
+    *-- Nace aquí: el host pone oCon antes de llamar al comando, y este
+    *-- assign la publica. PUBLIC y no PRIVATE porque el host llama al
+    *-- comando directamente, sin código VFP delante que pudiera declarar
+    *-- una PRIVATE; cada ejecución de la CLI es un proceso nuevo, así que
+    *-- no se queda nada colgado. No declares tú otra Console LOCAL: la
+    *-- taparía en ese método.
     PROTECTED PROCEDURE oCon_Assign(toCon)
         THIS.oCon = toCon
         PUBLIC Console
