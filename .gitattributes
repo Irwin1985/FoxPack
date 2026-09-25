@@ -1,0 +1,7 @@
+# Binarios de VFP: tal cual.
+*.pjx binary
+*.PJT binary
+*.pjt binary
+# Una libreria prestada se guarda con sus bytes: si git le cambiara los
+# finales de linea, su SHA-256 dejaria de ser el de foxpack.lock.
+src/JsonFox.prg -text

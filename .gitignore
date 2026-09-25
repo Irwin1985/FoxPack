@@ -1,0 +1,11 @@
+dist/
+*.FXP
+*.fxp
+*.ERR
+*.err
+*.BAK
+*.bak
+*.log
+FOXUSER.*
+.foxforge-build.txt
+tests/tmp/
