@@ -113,8 +113,8 @@ foxpack update jsonfox
 
 Remove a library from lib\ and from foxpack.lock
 
-Its files are deleted, local changes included: take them out of your
-project too.
+Its files are deleted, local changes included. If the VFP project in
+the folder is closed, they are taken out of it too.
 
 ```
 foxpack remove <library> [opciones]

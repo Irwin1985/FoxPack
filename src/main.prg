@@ -241,12 +241,12 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
 
 
     *!* Remove a library from lib\ and from foxpack.lock
-    *!* Its files are deleted, local changes included: take them out of your
-    *!* project too.
+    *!* Its files are deleted, local changes included. If the VFP project in
+    *!* the folder is closed, they are taken out of it too.
     *!* @tcLibrary <>        The library
     *!* @tcProject -p =.     Project folder
     PROCEDURE Remove(tcLibrary AS String, tcProject AS String)
-        LOCAL lcCarpeta, loCandado, loLib, loInst, lcNombre
+        LOCAL lcCarpeta, loCandado, loLib, loInst, lcNombre, loPjx, lnQuitadas
 
         lcCarpeta = THIS.Carpeta(tcProject)
         IF EMPTY(lcCarpeta)
@@ -274,6 +274,18 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
             RETURN EXIT_FAILED
         ENDIF
         Console.WriteLine("Removed " + lcNombre + " " + loLib.cVersion + " and lib\" + lcNombre + "\")
+
+        *-- Y del proyecto VFP, si está cerrado: si no, al abrirlo VFP
+        *-- preguntaría por el fichero que falta (proyectovfp.prg).
+        loPjx = NEWOBJECT("ProyectoVfp", "proyectovfp.prg")
+        lnQuitadas = loPjx.Quitar(lcCarpeta, lcNombre)
+        IF lnQuitadas > 0
+            Console.WriteLine("Taken out of the project: " + TRANSFORM(lnQuitadas) + " file(s)")
+        ENDIF
+        IF !EMPTY(loPjx.cOcupados)
+            Console.WriteLine("The project is open in VFP (" + CHRTRAN(ALLTRIM(loPjx.cOcupados, 0, CHR(13)), CHR(13), ",") + ;
+                "): FoxForge takes the library out of it at the next build (Ctrl+F7).")
+        ENDIF
         RETURN EXIT_OK
     ENDPROC
 

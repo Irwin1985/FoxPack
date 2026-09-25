@@ -390,6 +390,74 @@ Test-Case "remove borra lib\<libreria> y la quita del candado, y deja las demas"
     if ($r.Out -notmatch "No libraries installed") { return "list: [$($r.Out)]" }
 }
 
+
+# ---------------------------------------------------------------------------
+# remove y el proyecto VFP (tests\fixtures\fixture.pjx)
+# ---------------------------------------------------------------------------
+# El .pjx de prueba tiene lib\jsonlib\jsonlib.prg, lib\jsonlib\inc\jsonlib.h,
+# lib\otra\otra.prg y lib\jsonfox\jsonfox.prg, ademas de src\. Se lee con un
+# VFP de verdad (vfp9.exe -T), con plazo, como hace smoke-cli.ps1 de FoxForge.
+
+$vfp = "C:\Program Files (x86)\Microsoft Visual FoxPro 9\vfp9.exe"
+
+# Las entradas vivas (no borradas) del .pjx, en minusculas y sin el CHR(0).
+function Get-EntradasPjx { param([string]$Pjx)
+    $dir = Split-Path $Pjx
+    $res = Join-Path $dir "entradas.txt"
+    $cfg = Join-Path $dir "sonda.fpw"
+    $prg = Join-Path $dir "sonda.prg"
+    [IO.File]::WriteAllText($cfg, "SCREEN = OFF`r`nRESOURCE = OFF`r`n")
+    [IO.File]::WriteAllText($prg, (@(
+        "LOCAL lc",
+        "lc = """"",
+        "SET DELETED ON",
+        "USE ""$Pjx"" AGAIN SHARED NOUPDATE ALIAS p",
+        "SCAN FOR !(p.TYPE == ""H"")",
+        "    lc = lc + LOWER(CHRTRAN(p.NAME, CHR(0), """")) + CHR(13)",
+        "ENDSCAN",
+        "USE IN SELECT(""p"")",
+        "STRTOFILE(lc, ""$res"")",
+        "QUIT") -join "`r`n") + "`r`n")
+    $p = Start-Process -FilePath $vfp -ArgumentList @("-T", "-c$cfg", $prg) -WorkingDirectory $dir -PassThru
+    if (-not $p.WaitForExit(60000)) { $p.Kill(); return @("COLGADO") }
+    if (-not (Test-Path $res)) { return @("SIN RESULTADO") }
+    $salida = @((Get-Content -Raw $res) -split "`r" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" } | Sort-Object)
+    Remove-Item $res, $cfg, $prg -Force
+    return $salida
+}
+
+function New-ConPjx { param([string]$Nombre)
+    $d = New-Vacio $Nombre
+    Copy-Item (Join-Path $root "tests\fixtures\fixture.pjx") $d
+    Copy-Item (Join-Path $root "tests\fixtures\fixture.pjt") $d
+    return $d
+}
+
+Test-Case "remove quita del .pjx cerrado las entradas de la libreria, y solo esas" {
+    if (-not (Test-Path $vfp)) { return "no esta vfp9.exe en $vfp" }
+    $rem = New-Remoto; $d = New-ConPjx "pjx1"
+    $null = Invoke-Fp @("add", "jsonlib") $d -Remote $rem
+    $r = Invoke-Fp @("remove", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -notmatch "Taken out of the project: 2 file") { return "stdout: [$($r.Out)]" }
+    $quedan = Get-EntradasPjx (Join-Path $d "fixture.pjx")
+    $esperadas = @("..\..\desarrollo\irwinrodriguez.dev\foxforge\providers\cli\hook\foxclihook.vcx",
+                   "lib\jsonfox\jsonfox.prg", "lib\otra\otra.prg",
+                   "src\foxcli.h", "src\foxcli.prg", "src\main.prg") | Sort-Object
+    if (($quedan -join ",") -ne ($esperadas -join ",")) { return "quedan [" + ($quedan -join ",") + "]" }
+}
+
+Test-Case "remove con el .pjx abierto (bloqueado) no falla y avisa" {
+    $rem = New-Remoto; $d = New-ConPjx "pjx2"
+    $null = Invoke-Fp @("add", "jsonlib") $d -Remote $rem
+    # Como el IDE con el proyecto abierto: el fichero, abierto en exclusiva.
+    $fs = [IO.File]::Open((Join-Path $d "fixture.pjx"), "Open", "ReadWrite", "None")
+    try { $r = Invoke-Fp @("remove", "jsonlib") $d -Remote $rem } finally { $fs.Close() }
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -notmatch "The project is open in VFP \(fixture\.pjx\)") { return "stdout: [$($r.Out)]" }
+    if (Test-Path (Join-Path $d "lib\jsonlib")) { return "no borro lib\jsonlib" }
+}
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""
 if ($script:fail -eq 0) { Write-Host "$($script:pass) casos, todos en verde." -ForegroundColor Green }
