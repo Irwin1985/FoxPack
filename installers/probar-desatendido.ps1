@@ -1,14 +1,20 @@
 # installers\probar-desatendido.ps1 -- el instalador de FoxPack, sin nadie delante
 #
-# Instala con /VERYSILENT /SUPPRESSMSGBOXES en una carpeta de prueba, comprueba
-# exe, registro, PATH y exit codes, desinstala igual y comprueba que el PATH del
-# sistema queda EXACTAMENTE como estaba (en crudo: tipo REG_EXPAND_SZ y las
-# %SystemRoot% sin expandir). Regla 13 de shared\vfp-rules\tooling-rules.md.
+# Reglas 13 y 14 de shared\vfp-rules\tooling-rules.md. Sin nadie delante
+# (/VERYSILENT /SUPPRESSMSGBOXES /NORESTART):
 #
-# OJO al medir la desinstalacion: unins000.exe se copia a %TEMP% y sale; la
-# copia sigue trabajando despues, y quita la entrada del PATH al final
-# (usPostUninstall). Leer el PATH en cuanto sale unins000.exe da un falso
-# "no la ha quitado": se espera a que desaparezca, con plazo.
+#   1. Instala una version "vieja" en Program Files (x86)\FoxPack, como las de
+#      antes de la regla 14.
+#   2. Instala otra vez SIN /DIR: tiene que quitar la de Program Files e ir a
+#      C:\Programas\FoxPack, con la carpeta CERRADA (sin herencia, usuarios
+#      solo lectura y ejecucion, nada para "Usuarios autentificados").
+#   3. Comprueba exe, registro, PATH (solo la carpeta nueva) y --version.
+#   4. Desinstala y comprueba que el PATH del sistema queda en crudo como estaba.
+#
+# OJO al medir una desinstalacion: unins000.exe se copia a %TEMP% y sale; la
+# copia sigue trabajando despues y quita la entrada del PATH al final
+# (usPostUninstall). Leer el PATH en cuanto sale da un falso "no la ha
+# quitado": se espera a que cambie, con plazo.
 #
 # Toca el registro y el PATH del sistema: hace falta administrador.
 #
@@ -16,42 +22,76 @@
 #
 # Fichero en ASCII: PowerShell 5.1 no lee bien un .ps1 con acentos.
 
-[CmdletBinding()]
-param([string]$Dir = "C:\foxpack-prueba-desatendida")
-
 $ErrorActionPreference = "Stop"
 $setup = Get-ChildItem (Join-Path $PSScriptRoot "output\FoxPack-Setup-*.exe") | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $setup) { "No hay instalador en installers\output. Compila FoxPack.iss antes."; exit 1 }
 $envKey = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
 $regKey = "HKLM:\SOFTWARE\WOW6432Node\irwinrodriguez.dev\FoxPack"
+$vieja  = Join-Path ${env:ProgramFiles(x86)} "FoxPack"
+$nueva  = Join-Path $env:SystemDrive "Programas\FoxPack"
 $fallos = @()
 
-function Get-PathCrudo {
-    (Get-Item $envKey).GetValue("Path", $null, "DoNotExpandEnvironmentNames")
+function Get-PathCrudo { (Get-Item $envKey).GetValue("Path", $null, "DoNotExpandEnvironmentNames") }
+
+function Invoke-Setup { param([string]$Exe, [string[]]$Extra = @())
+    $p = Start-Process $Exe -ArgumentList (@("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") + $Extra) -PassThru
+    if (-not $p.WaitForExit(180000)) { $p.Kill(); "SE QUEDO PARADO: $Exe (un dialogo esperando a nadie)"; exit 1 }
+    return $p.ExitCode
 }
 
+if ((Test-Path "$vieja\foxpack.exe") -or (Test-Path "$nueva\foxpack.exe")) {
+    "Ya hay un FoxPack instalado ($vieja o $nueva). Desinstalalo antes de la prueba."; exit 1
+}
 $antes = Get-PathCrudo
 "Instalador: " + $setup.Name
 
-$p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$Dir" -PassThru
-if (-not $p.WaitForExit(120000)) { $p.Kill(); "INSTALAR: se quedo parado (un dialogo esperando a nadie)"; exit 1 }
-if ($p.ExitCode -ne 0) { $fallos += "instalar: exit $($p.ExitCode)" }
-if (-not (Test-Path "$Dir\foxpack.exe")) { $fallos += "no instalo foxpack.exe" }
-$reg = Get-ItemProperty $regKey -ErrorAction SilentlyContinue
-if (-not $reg -or $reg.InstallDir -ne $Dir) { $fallos += "el registro no dice InstallDir=$Dir" }
-if ((Get-PathCrudo) -split ";" -notcontains $Dir) { $fallos += "no esta en el PATH" }
-$ver = & "$Dir\foxpack.exe" --version
-if ($ver -notmatch "^foxpack \d") { $fallos += "foxpack --version: [$ver]" }
-"instalado: $ver"
+# 1. La "vieja", en Program Files
+# Con comillas: Start-Process junta los argumentos con espacios y NO los
+# entrecomilla, y "/DIR=C:\Program Files (x86)\FoxPack" llegaba como
+# "/DIR=C:\Program" (medido: instalo en C:\Program).
+$c = Invoke-Setup $setup.FullName @('/DIR="' + $vieja + '"')
+if ($c -ne 0 -or -not (Test-Path "$vieja\foxpack.exe")) { "no se pudo poner la vieja en $vieja (exit $c)"; exit 1 }
+"vieja en:  $vieja"
 
-$u = Start-Process (Join-Path $Dir "unins000.exe") -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -PassThru
-if (-not $u.WaitForExit(120000)) { $u.Kill(); "DESINSTALAR: se quedo parado"; exit 1 }
-if ($u.ExitCode -ne 0) { $fallos += "desinstalar: exit $($u.ExitCode)" }
+# 2. La nueva, sin /DIR
+$c = Invoke-Setup $setup.FullName
+if ($c -ne 0) { $fallos += "instalar: exit $c" }
+if (Test-Path "$vieja\foxpack.exe") { $fallos += "no quito la de Program Files" }
+if (-not (Test-Path "$nueva\foxpack.exe")) { $fallos += "no instalo en $nueva" }
+"nueva en:  $nueva"
+
+# 3. Lo instalado
+$reg = Get-ItemProperty $regKey -ErrorAction SilentlyContinue
+if (-not $reg -or $reg.InstallDir -ne $nueva) { $fallos += "el registro no dice InstallDir=$nueva" }
+$entradas = (Get-PathCrudo) -split ";"
+if ($entradas -notcontains $nueva) { $fallos += "la nueva no esta en el PATH" }
+if ($entradas -contains $vieja) { $fallos += "la vieja sigue en el PATH" }
+$ver = & "$nueva\foxpack.exe" --version
+if ($ver -notmatch "^foxpack \d") { $fallos += "foxpack --version: [$ver]" }
+"version:   $ver"
+
+# La carpeta, cerrada (regla 14)
+$acl = Get-Acl $nueva
+if (-not $acl.AreAccessRulesProtected) { $fallos += "la carpeta sigue heredando permisos" }
+foreach ($r in $acl.Access) {
+    $sid = $r.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    # Solo los bits que ESCRIBEN: WriteData 0x2, AppendData 0x4, WriteExtendedAttributes
+    # 0x10, WriteAttributes 0x100, Delete 0x10000. Una mascara con Modify daba
+    # positivo con ReadAndExecute, porque comparten Synchronize y los de lectura.
+    $escribe = ([int]$r.FileSystemRights -band 0x10116) -ne 0
+    if ($sid -eq "S-1-5-11") { $fallos += "Usuarios autentificados sigue en la carpeta ($($r.FileSystemRights))" }
+    if ($sid -eq "S-1-5-32-545" -and $escribe) { $fallos += "los usuarios pueden escribir ($($r.FileSystemRights))" }
+}
+$acl.Access | ForEach-Object { "  permiso:  " + $_.IdentityReference + " " + $_.FileSystemRights }
+
+# 4. Desinstalar
+$c = Invoke-Setup (Join-Path $nueva "unins000.exe")
+if ($c -ne 0) { $fallos += "desinstalar: exit $c" }
 for ($i = 0; $i -lt 40 -and ((Get-PathCrudo) -ne $antes); $i++) { Start-Sleep -Milliseconds 500 }
 if ((Get-PathCrudo) -ne $antes) { $fallos += "el PATH no ha vuelto a como estaba" }
 if (Test-Path $regKey) { $fallos += "sigue la clave del registro" }
-if (Test-Path "$Dir\foxpack.exe") { $fallos += "sigue foxpack.exe" }
+if (Test-Path "$nueva\foxpack.exe") { $fallos += "sigue foxpack.exe" }
 
-if ($fallos.Count -eq 0) { "OK: instala y desinstala sin nadie delante, y el PATH queda como estaba"; exit 0 }
+if ($fallos.Count -eq 0) { "OK: migra de Program Files a C:\Programas, cierra la carpeta, y desinstala dejando el PATH como estaba"; exit 0 }
 $fallos | ForEach-Object { "FALLO: $_" }
 exit 1

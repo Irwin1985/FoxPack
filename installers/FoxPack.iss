@@ -6,6 +6,14 @@
 ;   ficheros, activacion COM por manifiesto y sin registro), el README, la
 ;   licencia y docs\foxpack.md.
 ;
+; DONDE: C:\Programas\FoxPack, regla 14 de shared\vfp-rules\tooling-rules.md.
+;   Y como C:\Programas deja modificar su contenido a cualquier usuario
+;   autenticado (lo hereda de C:\), el instalador CIERRA su carpeta al acabar:
+;   sin herencia, administradores y SYSTEM con control total, usuarios con
+;   lectura y ejecucion. Por SID, que funciona en Windows de cualquier idioma.
+;   Si habia una instalacion en otra carpeta (Program Files, de antes de la
+;   regla), se desinstala en silencio antes de instalar esta.
+;
 ;   Y dos cosas fuera de su carpeta:
 ;     - {app} en el PATH del sistema, para que «foxpack» funcione en cualquier
 ;       consola. Se quita al desinstalar.
@@ -51,7 +59,10 @@ AppVersion={#Version}
 AppVerName={#Nombre} {#Version}
 AppPublisher={#Publicador}
 AppPublisherURL=https://irwinrodriguez.dev
-DefaultDirName={autopf}\FoxPack
+DefaultDirName={sd}\Programas\FoxPack
+; No la carpeta de la instalacion anterior: si estaba fuera de C:\Programas,
+; se desinstala y esta va donde manda la regla (DesinstalarAnterior).
+UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ChangesEnvironment=yes
@@ -92,6 +103,78 @@ Root: HKLM; Subkey: "SOFTWARE\irwinrodriguez.dev\FoxPack"; ValueType: string; Va
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: FaltaEnPath(ExpandConstant('{app}'))
 
 [Code]
+#define AppIdUninst "{6B0E2C41-8D7A-4F35-9E12-F0XPACK00001}_is1"
+
+// ---------------------------------------------------------------------------
+// La instalacion anterior, si esta en otra carpeta: se desinstala en silencio.
+//
+// unins000.exe sale enseguida: se copia a %TEMP% y la copia sigue trabajando
+// (regla 13). Por eso no basta con esperar a que termine: se espera, con plazo,
+// a que desaparezca su foxpack.exe.
+// ---------------------------------------------------------------------------
+function DesinstalarAnterior(): String;
+var
+  Clave, Carpeta, Uninst: String;
+  Codigo, I: Integer;
+begin
+  Result := '';
+  Clave := 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#AppIdUninst}';
+  if not RegQueryStringValue(HKLM, Clave, 'InstallLocation', Carpeta) then
+    Exit;
+  Carpeta := RemoveBackslashUnlessRoot(Carpeta);
+  if CompareText(Carpeta, RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) = 0 then
+    Exit;
+  if not RegQueryStringValue(HKLM, Clave, 'UninstallString', Uninst) then
+    Exit;
+  Uninst := RemoveQuotes(Uninst);
+  Log('FoxPack: desinstalando la anterior de ' + Carpeta);
+  if not Exec(Uninst, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '', SW_HIDE,
+              ewWaitUntilTerminated, Codigo) then
+  begin
+    Result := 'No se pudo desinstalar FoxPack de ' + Carpeta;
+    Exit;
+  end;
+  for I := 1 to 60 do
+  begin
+    if not FileExists(AddBackslash(Carpeta) + 'foxpack.exe') then
+      Break;
+    Sleep(500);
+  end;
+  if FileExists(AddBackslash(Carpeta) + 'foxpack.exe') then
+    Result := 'FoxPack sigue instalado en ' + Carpeta + ': desinstalalo antes.';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := DesinstalarAnterior();
+end;
+
+// ---------------------------------------------------------------------------
+// Cerrar la carpeta (regla 14). icacls por SID: S-1-5-32-544 administradores,
+// S-1-5-18 SYSTEM, S-1-5-32-545 usuarios. /inheritance:r quita lo heredado de
+// C:\Programas, que incluye «Usuarios autentificados: Modificar».
+// ---------------------------------------------------------------------------
+procedure CerrarCarpeta();
+var
+  Codigo: Integer;
+begin
+  if not Exec(ExpandConstant('{sys}\icacls.exe'),
+              '"' + ExpandConstant('{app}') + '" /inheritance:r ' +
+              '/grant:r *S-1-5-32-544:(OI)(CI)F *S-1-5-18:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX',
+              '', SW_HIDE, ewWaitUntilTerminated, Codigo) or (Codigo <> 0) then
+  begin
+    Log('FoxPack: icacls devolvio ' + IntToStr(Codigo));
+    SuppressibleMsgBox('No se pudieron ajustar los permisos de ' + ExpandConstant('{app}') +
+                       '. Cualquier usuario podria modificar FoxPack.', mbError, MB_OK, IDOK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    CerrarCarpeta();
+end;
+
 // ---------------------------------------------------------------------------
 // El PATH del sistema, entre punto y coma y sin distinguir mayusculas.
 // ---------------------------------------------------------------------------
