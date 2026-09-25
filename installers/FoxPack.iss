@@ -89,6 +89,9 @@ Source: "{#Dist}\foxpack.exe";              DestDir: "{app}"; Flags: ignoreversi
 Source: "{#Dist}\foxpack.dll";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\foxpack.exe.manifest";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\foxpack.exe.commands.txt"; DestDir: "{app}"; Flags: ignoreversion
+; Lee el sello de FoxCli del manifiesto (FoxPack sale sellado a nombre de Irwin).
+; Sin ella, foxpack funciona igual pero escribe la linea de evaluacion.
+Source: "{#Dist}\Nexum.dll";                DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\vfp9r.dll";                DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\msvcr71.dll";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\VFP9RENU.DLL";             DestDir: "{app}"; Flags: ignoreversion

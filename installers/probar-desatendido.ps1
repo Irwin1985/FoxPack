@@ -68,6 +68,9 @@ if ($entradas -notcontains $nueva) { $fallos += "la nueva no esta en el PATH" }
 if ($entradas -contains $vieja) { $fallos += "la vieja sigue en el PATH" }
 $ver = & "$nueva\foxpack.exe" --version
 if ($ver -notmatch "^foxpack \d") { $fallos += "foxpack --version: [$ver]" }
+# PLAN-FOXCLI-LICENCIA, pieza 5: FoxPack sale sellado a nombre de Irwin, y el sello
+# solo lo lee el host si Nexum.dll esta instalado a su lado. Sin el, sale en evaluacion.
+if ($ver -notmatch "licensed to Irwin Rodr") { $fallos += "el instalado no esta sellado (falta Nexum.dll?): [$ver]" }
 "version:   $ver"
 
 # La carpeta, cerrada (regla 14)

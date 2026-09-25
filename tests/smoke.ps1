@@ -458,6 +458,21 @@ Test-Case "remove con el .pjx abierto (bloqueado) no falla y avisa" {
     if (Test-Path (Join-Path $d "lib\jsonlib")) { return "no borro lib\jsonlib" }
 }
 
+# PLAN-FOXCLI-LICENCIA, pieza 5 (25-09-2026): FoxPack es gratis y sale SELLADO a
+# nombre de Irwin. Con el sello, --version dice a quien esta licenciado y ninguna
+# ejecucion escribe la linea de evaluacion de FoxCli por stderr. Hace falta
+# Nexum.dll junto al .exe: es quien lee el sello.
+Test-Case "sellado a nombre de Irwin: --version lo dice y no hay linea de evaluacion" {
+    if (-not (Test-Path (Join-Path $root "dist\Nexum.dll"))) { return "falta dist\Nexum.dll" }
+    $d = Join-Path $tmp "sello"; New-Item -ItemType Directory -Force -Path $d | Out-Null
+    $v = Invoke-Fp @("--version") $d
+    if ($v.Code -ne 0) { return "--version: exit $($v.Code)" }
+    if ($v.Out -notmatch "licensed to Irwin Rodr") { return "--version: [$($v.Out)]" }
+    if ($v.Err -match "irwinrodriguez.dev/foxcli") { return "--version escribe la linea de evaluacion: [$($v.Err)]" }
+    $l = Invoke-Fp @("list") $d
+    if ($l.Err -match "irwinrodriguez.dev/foxcli") { return "list escribe la linea de evaluacion: [$($l.Err)]" }
+}
+
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""
 if ($script:fail -eq 0) { Write-Host "$($script:pass) casos, todos en verde." -ForegroundColor Green }
