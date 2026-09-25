@@ -8,7 +8,7 @@
 # OJO al medir la desinstalacion: unins000.exe se copia a %TEMP% y sale; la
 # copia sigue trabajando despues, y quita la entrada del PATH al final
 # (usPostUninstall). Leer el PATH en cuanto sale unins000.exe da un falso
-# «no la ha quitado»: se espera a que desaparezca, con plazo.
+# "no la ha quitado": se espera a que desaparezca, con plazo.
 #
 # Toca el registro y el PATH del sistema: hace falta administrador.
 #
