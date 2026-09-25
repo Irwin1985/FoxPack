@@ -73,6 +73,14 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#Nombre} {#Version}
 LicenseFile=..\LICENSE
+; LA FIRMA, SOLO SI SE PIDE. Con /DFirmar Inno firma el setup Y el desinstalador con la
+; SignTool 'firmar', que le da installers\construir.ps1 -Firmar en la linea de comandos
+; (Golem\tools\firmar.ps1, certificado SSL.com IV de Irwin). Sin /DFirmar compila igual
+; y sin gastar cuota de eSigner.
+#ifdef Firmar
+SignTool=firmar
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
