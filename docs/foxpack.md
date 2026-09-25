@@ -82,6 +82,9 @@ foxpack restore [opciones]
 
 Move one library (or all of them) to its latest version
 
+A library whose copy was changed by hand is not updated unless you
+say --force: the change would be lost.
+
 ```
 foxpack update [library] [opciones]
 ```
@@ -99,9 +102,19 @@ foxpack update [library] [opciones]
 | `-p`, `--project` | text, default `.` | Project folder |
 | `-f`, `--force` | flag | Overwrite a copy that someone has changed |
 
+**Examples**
+
+```
+foxpack update
+foxpack update jsonfox
+```
+
 ### remove
 
 Remove a library from lib\ and from foxpack.lock
+
+Its files are deleted, local changes included: take them out of your
+project too.
 
 ```
 foxpack remove <library> [opciones]

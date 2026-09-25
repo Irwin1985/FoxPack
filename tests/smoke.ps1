@@ -172,7 +172,8 @@ function New-Remoto {
     $r = Join-Path $tmp ("remoto-" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
     Write-Remoto (Join-Path $r "index.json") ('{"indexVersion": 1, "libraries": [' +
         '{"name": "jsonlib", "repo": "fake/JsonLib"}, {"name": "mala", "repo": "fake/Mala"},' +
-        '{"name": "sinmanif", "repo": "fake/Sin"}, {"name": "rota", "repo": "fake/Rota"}]}')
+        '{"name": "sinmanif", "repo": "fake/Sin"}, {"name": "rota", "repo": "fake/Rota"},' +
+        '{"name": "otra", "repo": "fake/Otra"}]}')
 
     $j = Join-Path $r "repos\fake\JsonLib"
     Write-Remoto (Join-Path $j "tags.json") ('[{"name": "v1.0", "commit": {"sha": "1111111111111111111111111111111111111111"}},' +
@@ -194,6 +195,15 @@ function New-Remoto {
     $s = Join-Path $r "repos\fake\Sin"
     Write-Remoto (Join-Path $s "tags.json") '[{"name": "v1.0", "commit": {"sha": "4444444444444444444444444444444444444444"}}]'
     Write-Remoto (Join-Path $s "4444444444444444444444444444444444444444\s.prg") "* s`r`n"
+
+    $t = Join-Path $r "repos\fake\Otra"
+    Write-Remoto (Join-Path $t "tags.json") ('[{"name": "v1.0", "commit": {"sha": "6666666666666666666666666666666666666666"}},' +
+        '{"name": "v1.1", "commit": {"sha": "7777777777777777777777777777777777777777"}}]')
+    foreach ($v in @(@{ V = "1.0"; S = "6666666666666666666666666666666666666666" },
+                     @{ V = "1.1"; S = "7777777777777777777777777777777777777777" })) {
+        Write-Remoto (Join-Path $t ($v.S + "\foxpack.json")) ('{"name": "otra", "version": "' + $v.V + '", "files": ["otra.prg"]}')
+        Write-Remoto (Join-Path $t ($v.S + "\otra.prg")) ("* otra " + $v.V + "`r`n")
+    }
 
     $o = Join-Path $r "repos\fake\Rota"
     Write-Remoto (Join-Path $o "tags.json") '[{"name": "v1.0", "commit": {"sha": "5555555555555555555555555555555555555555"}}]'
@@ -314,6 +324,70 @@ Test-Case "restore: si el remoto ya no tiene lo del candado, exit 11 y no toca n
     if ($r.Code -ne 11) { return "exit $($r.Code), esperaba 11" }
     if ($r.Err -notmatch "SHA-256 differs") { return "stderr: [$($r.Err)]" }
     if ((Get-Content -Raw (Join-Path $d "lib\jsonlib\JsonLib.prg")) -notmatch "tocado") { return "cambio la copia" }
+}
+
+
+# ---------------------------------------------------------------------------
+# update y remove
+# ---------------------------------------------------------------------------
+
+Test-Case "update pasa a la ultima, y la segunda vez dice que esta al dia" {
+    $rem = New-Remoto; $d = New-Vacio "upd1"
+    $null = Invoke-Fp @("add", "jsonlib@1.0") $d -Remote $rem
+    $r = Invoke-Fp @("update", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -notmatch "updated\s+jsonlib 1\.0 -> 2\.0") { return "stdout: [$($r.Out)]" }
+    if ((Get-Lock $d).libraries[0].version -ne "2.0") { return "el candado no dice 2.0" }
+    if ((Get-Content -Raw (Join-Path $d "lib\jsonlib\JsonLib.prg")) -notmatch "JsonLib 2\.0") { return "la copia no es la 2.0" }
+    $r = Invoke-Fp @("update") $d -Remote $rem
+    if ($r.Code -ne 0 -or $r.Out -notmatch "up to date\s+jsonlib 2\.0") { return "segunda vez: exit $($r.Code) [$($r.Out)]" }
+}
+
+Test-Case "update sin nombre las pasa todas" {
+    $rem = New-Remoto; $d = New-Vacio "upd2"
+    $null = Invoke-Fp @("add", "jsonlib@1.0") $d -Remote $rem
+    $null = Invoke-Fp @("add", "otra@1.0") $d -Remote $rem
+    $r = Invoke-Fp @("update") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -notmatch "updated\s+jsonlib 1\.0 -> 2\.0") { return "jsonlib: [$($r.Out)]" }
+    if ($r.Out -notmatch "updated\s+otra 1\.0 -> 1\.1") { return "otra: [$($r.Out)]" }
+}
+
+Test-Case "update no pisa una copia tocada sin --force, y con --force si" {
+    $rem = New-Remoto; $d = New-Vacio "upd3"
+    $null = Invoke-Fp @("add", "jsonlib@1.0") $d -Remote $rem
+    Add-Content -Path (Join-Path $d "lib\jsonlib\JsonLib.prg") -Value "* arreglo a mano"
+    $r = Invoke-Fp @("update", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 12) { return "sin --force: exit $($r.Code), esperaba 12" }
+    if ($r.Err -notmatch "--force") { return "no dice --force: [$($r.Err)]" }
+    if ((Get-Lock $d).libraries[0].version -ne "1.0") { return "sin --force cambio el candado" }
+    $r = Invoke-Fp @("update", "jsonlib", "--force") $d -Remote $rem
+    if ($r.Code -ne 0) { return "con --force: exit $($r.Code) $($r.Err)" }
+    if ((Get-Content -Raw (Join-Path $d "lib\jsonlib\JsonLib.prg")) -match "arreglo a mano") { return "con --force no piso la copia" }
+    $v = Invoke-Fp @("verify") $d -Remote $rem
+    if ($v.Code -ne 0) { return "verify despues de --force: exit $($v.Code)" }
+}
+
+Test-Case "update y remove de algo que no esta instalado dan exit 10" {
+    $rem = New-Remoto; $d = New-Vacio "upd4"
+    $r = Invoke-Fp @("update", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 10) { return "update: exit $($r.Code), esperaba 10" }
+    $r = Invoke-Fp @("remove", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 10) { return "remove: exit $($r.Code), esperaba 10" }
+}
+
+Test-Case "remove borra lib\<libreria> y la quita del candado, y deja las demas" {
+    $rem = New-Remoto; $d = New-Vacio "rem1"
+    $null = Invoke-Fp @("add", "jsonlib") $d -Remote $rem
+    $null = Invoke-Fp @("add", "github:fake/JsonLib@1.0", "--yes") $d -Remote $rem
+    # las dos se llaman jsonlib: la segunda sustituye a la primera
+    $r = Invoke-Fp @("remove", "JSONLIB") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -notmatch "Removed jsonlib 1\.0") { return "stdout: [$($r.Out)]" }
+    if (Test-Path (Join-Path $d "lib\jsonlib")) { return "no borro lib\jsonlib" }
+    if ((Get-Lock $d).libraries.Count -ne 0) { return "sigue en el candado" }
+    $r = Invoke-Fp @("list") $d -Remote $rem
+    if ($r.Out -notmatch "No libraries installed") { return "list: [$($r.Out)]" }
 }
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
