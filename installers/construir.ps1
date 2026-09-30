@@ -45,6 +45,16 @@ if (-not (Get-Content $man | Where-Object { $_ -like 'sel|*' })) {
     exit 1
 }
 
+# FoxStack, el que va dentro (FoxPack.iss lo exige firmado y no compila sin el).
+$stackExe = Join-Path $root '..\FoxStack\installers\payload\foxstack.exe'
+if (-not (Test-Path $stackExe)) { Write-Error "No esta ${stackExe}: construye FoxStack con su installers\construir.ps1 -Firmar"; exit 1 }
+$stackVer = ((Get-Item $stackExe).VersionInfo.FileVersion -split '\.')[0..2] -join '.'
+$stackSetup = Join-Path $root "..\FoxStack\installers\output\FoxStack-Setup-$stackVer.exe"
+if (-not (Test-Path $stackSetup)) { Write-Error "No esta ${stackSetup}: construye FoxStack con su installers\construir.ps1 -Firmar"; exit 1 }
+$f = Get-AuthenticodeSignature $stackSetup
+'dentro va {0} {1} bytes SHA256 {2} firma={3}' -f (Split-Path $stackSetup -Leaf), (Get-Item $stackSetup).Length, (Get-FileHash $stackSetup -Algorithm SHA256).Hash, $f.Status
+if ($f.Status -ne 'Valid') { Write-Error "NO SE COMPILA: el setup de FoxStack no esta firmado"; exit 1 }
+
 if ($Firmar) {
     if (-not (Test-Path $firmarPs1)) { Write-Error "No esta $firmarPs1"; exit 1 }
     '== firma de lo nuestro, en dist\'

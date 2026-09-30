@@ -22,6 +22,15 @@
 ;       para el menu «Añadir librería». Instalador de 32 bits: acaba en
 ;       WOW6432Node, que es donde lee un VFP.
 ;
+;   Y FoxStack (PLAN-FOXSTACK-1.0.md, F3): FoxPack lleva dentro el setup de
+;   FoxStack, como FoxCli lleva el de FoxForge. PrepareToInstall lo instala si
+;   no esta (o la clave apunta a una carpeta sin foxstack.exe) o si el que hay
+;   es mas viejo; igual o mas nuevo, no se toca. Si ese setup falla, FoxPack se
+;   instala igual y queda en el log. Al acabar se escribe
+;   <InstallDir de FoxStack>\providers\foxpack\provider.json, SIEMPRE, tambien
+;   al actualizar: es lo que despierta la recarga de un FoxStack arrancado. Al
+;   desinstalar FoxPack se va providers\foxpack\ y FoxStack se queda.
+;
 ; LA VERSION sale del manifiesto que genera la compilacion
 ; (dist\foxpack.exe.commands.txt, linea «ver|»), que a su vez sale de la
 ; version del proyecto VFP. Asi el instalador no puede decir otra.
@@ -50,6 +59,29 @@
 #expr FileClose(FichMan)
 #if Version == ""
   #error dist\foxpack.exe.commands.txt no trae la version (ver|)
+#endif
+
+; FoxStack, el que viaja dentro: el setup que deja FoxStack\installers\construir.ps1,
+; con la version del foxstack.exe que empaqueto (su payload\). FIRMADO: un setup
+; sin firma dentro de uno firmado es justo lo que para el antivirus en casa de otro.
+#define StackDir "..\..\FoxStack\installers"
+#define StackExe AddBackslash(SourcePath) + StackDir + "\payload\foxstack.exe"
+#if !FileExists(StackExe)
+  #error Falta FoxStack\installers\payload\foxstack.exe: construye FoxStack con su installers\construir.ps1 -Firmar
+#endif
+#define StackMaj 0
+#define StackMin 0
+#define StackRev 0
+#define StackBld 0
+#expr GetVersionComponents(StackExe, StackMaj, StackMin, StackRev, StackBld)
+#define StackVer Str(StackMaj) + "." + Str(StackMin) + "." + Str(StackRev)
+#define SetupStack "FoxStack-Setup-" + StackVer + ".exe"
+#define SetupStackSrc StackDir + "\output\" + SetupStack
+#if !FileExists(AddBackslash(SourcePath) + SetupStackSrc)
+  #error Falta FoxStack\installers\output\FoxStack-Setup-<version>.exe: construye FoxStack con su installers\construir.ps1 -Firmar
+#endif
+#if Exec("powershell.exe", "-NoProfile -NonInteractive -Command $s=Get-AuthenticodeSignature -LiteralPath " + AddBackslash(SourcePath) + SetupStackSrc + "; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notlike '*Irwin Alfredo Rodriguez Gimenez*') { exit 1 }", , 1, 0) != 0
+  #error El setup de FoxStack no lleva nuestra firma valida: construye FoxStack con su installers\construir.ps1 -Firmar
 #endif
 
 [Setup]
@@ -107,6 +139,9 @@ Source: "{#Dist}\vfp9resn.dll";             DestDir: "{app}"; Flags: ignoreversi
 Source: "..\README.md";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE";                       DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\foxpack.md";               DestDir: "{app}\docs"; Flags: ignoreversion
+; FoxStack, por si hay que ponerlo. Se extrae al temporal y se ejecuta solo cuando
+; hace falta (PrepareToInstall), como FoxCli.iss con el setup de FoxForge.
+Source: "{#SetupStackSrc}";                 DestDir: "{tmp}"; Flags: dontcopy nocompression
 
 [Registry]
 Root: HKLM; Subkey: "SOFTWARE\irwinrodriguez.dev\FoxPack"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekey
@@ -155,9 +190,112 @@ begin
     Result := 'FoxPack sigue instalado en ' + Carpeta + ': desinstalalo antes.';
 end;
 
+// ---------------------------------------------------------------------------
+// FoxStack. Donde esta: COMPRUEBA EL FICHERO, no se cree la clave (FoxCli.iss
+// con el taller). Devuelve '' si no hay un FoxStack utilizable.
+// ---------------------------------------------------------------------------
+function LeerCarpetaStack(): String;
+var
+  Dir: String;
+begin
+  Result := '';
+  if RegQueryStringValue(HKLM32, 'SOFTWARE\irwinrodriguez.dev\FoxStack', 'InstallDir', Dir) then
+  begin
+    if FileExists(AddBackslash(Dir) + 'foxstack.exe') then
+      Result := RemoveBackslashUnlessRoot(Dir);
+  end;
+end;
+
+// El puesto es mas viejo que el que llevamos? Se compara como version, no como
+// texto. Una version que no se entiende cuenta como vieja: se pone el nuestro.
+function StackMasViejo(): Boolean;
+var
+  Puesta: String;
+  vPuesta, vNuestra: Int64;
+begin
+  Result := True;
+  if not RegQueryStringValue(HKLM32, 'SOFTWARE\irwinrodriguez.dev\FoxStack', 'Version', Puesta) then
+    Exit;
+  if not StrToVersion('{#StackVer}', vNuestra) then
+    Exit;
+  if not StrToVersion(Puesta, vPuesta) then
+    Exit;
+  Result := ComparePackedVersion(vPuesta, vNuestra) < 0;
+end;
+
+// Se lanza SU instalador en silencio en vez de copiar sus ficheros: FoxStack
+// tambien es una clave, el PATH y el permiso de providers\. Nunca un MsgBox:
+// FoxPack sin FoxStack sigue siendo FoxPack, y un fallo aqui solo va al log.
+procedure InstalarStack();
+var
+  Codigo: Integer;
+begin
+  ExtractTemporaryFile('{#SetupStack}');
+  Log('FoxPack: instalando FoxStack {#StackVer}');
+  if not Exec(ExpandConstant('{tmp}\{#SetupStack}'), '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART',
+              '', SW_HIDE, ewWaitUntilTerminated, Codigo) then
+    Log('FoxPack: no se pudo ejecutar el setup de FoxStack; FoxPack se instala sin el')
+  else if Codigo <> 0 then
+    Log('FoxPack: el setup de FoxStack termino con ' + IntToStr(Codigo) + '; FoxPack se instala sin el')
+  else
+    Log('FoxPack: FoxStack instalado en ' + LeerCarpetaStack());
+end;
+
+// Los cuatro casos de FoxCli.iss con el taller.
+procedure PonerStack();
+begin
+  if LeerCarpetaStack() = '' then
+    InstalarStack()                      // no esta, o la clave apunta al vacio
+  else if StackMasViejo() then
+    InstalarStack()                      // esta, pero mas viejo
+  else
+    Log('FoxPack: FoxStack ya esta en ' + LeerCarpetaStack() + ', igual o mas nuevo; no se toca');
+end;
+
+function JsonTexto(S: String): String;
+begin
+  StringChangeEx(S, '\', '\\', True);
+  StringChangeEx(S, '"', '\"', True);
+  Result := '"' + S + '"';
+end;
+
+// providers\foxpack\provider.json, SIEMPRE, tambien al actualizar: reescribirlo
+// es lo que hace que un FoxStack arrancado recargue el proveedor. Lo ultimo de
+// la instalacion, con foxpack.exe ya en su sitio.
+procedure EscribirProveedor();
+var
+  Stack, Carpeta, Json: String;
+begin
+  Stack := LeerCarpetaStack();
+  if Stack = '' then
+  begin
+    Log('FoxPack: sin FoxStack; no se registra el proveedor');
+    Exit;
+  end;
+  Carpeta := Stack + '\providers\foxpack';
+  if not ForceDirectories(Carpeta) then
+  begin
+    Log('FoxPack: no se pudo crear ' + Carpeta);
+    Exit;
+  end;
+  Json := '{' + #13#10 +
+    '  "id": "foxpack",' + #13#10 +
+    '  "kind": "cli",' + #13#10 +
+    '  "family": "stack",' + #13#10 +
+    '  "exe": ' + JsonTexto(ExpandConstant('{app}\foxpack.exe')) + ',' + #13#10 +
+    '  "description": "FoxPack: libraries for VFP projects, downloaded from GitHub at a fixed version"' + #13#10 +
+    '}' + #13#10;
+  if SaveStringsToUTF8FileWithoutBOM(Carpeta + '\provider.json', [Json], False) then
+    Log('FoxPack: proveedor escrito en ' + Carpeta + '\provider.json')
+  else
+    Log('FoxPack: no se pudo escribir ' + Carpeta + '\provider.json');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := DesinstalarAnterior();
+  if Result = '' then
+    PonerStack();
 end;
 
 // ---------------------------------------------------------------------------
@@ -183,7 +321,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     CerrarCarpeta();
+    EscribirProveedor();
+  end;
 end;
 
 // ---------------------------------------------------------------------------
@@ -203,12 +344,24 @@ begin
   Result := Pos(';' + Uppercase(Carpeta) + ';', ';' + Uppercase(LeerPath()) + ';') = 0;
 end;
 
-// Al desinstalar, la carpeta fuera del PATH (la anadio el instalador).
+// Al desinstalar, el proveedor de FoxStack (solo el nuestro, y FoxStack se
+// queda) y la carpeta fuera del PATH (la anadio el instalador).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  Ruta, Carpeta: String;
+  Ruta, Carpeta, Stack: String;
   P: Integer;
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Stack := LeerCarpetaStack();
+    if (Stack <> '') and DirExists(Stack + '\providers\foxpack') then
+    begin
+      if DelTree(Stack + '\providers\foxpack', True, True, True) then
+        Log('FoxPack: quitado ' + Stack + '\providers\foxpack; FoxStack se queda')
+      else
+        Log('FoxPack: no se pudo quitar ' + Stack + '\providers\foxpack');
+    end;
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
   Ruta := ';' + LeerPath() + ';';
