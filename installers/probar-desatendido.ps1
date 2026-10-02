@@ -59,6 +59,18 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# La cabecera dice el commit solo si hay git Y la carpeta es un repo (H9 de la certificacion
+# de FoxStack, ronda 107). Fuera del arbol, con la salida redirigida, PowerShell 5.1 convierte
+# el "fatal: not a git repository" de git en un NativeCommandError y, con
+# ErrorActionPreference Stop, abortaba la prueba antes del primer caso.
+function Get-Commit([string]$Dir) {
+    $ErrorActionPreference = 'Continue'
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return '(sin repo)' }
+    $c = $null
+    try { $c = & git -C $Dir rev-parse --short HEAD 2>$null } catch { $c = $null }
+    if ($LASTEXITCODE -eq 0 -and $c) { return [string]$c } else { return '(sin repo)' }
+}
 if (-not $Setup) {
     $s = Get-ChildItem (Join-Path $PSScriptRoot "output\FoxPack-Setup-*.exe") -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
     if (-not $s) { "No hay instalador en installers\output. Compila FoxPack.iss antes."; exit 1 }
@@ -126,7 +138,7 @@ New-Item -ItemType Directory -Force $proyecto | Out-Null
 [IO.File]::WriteAllText((Join-Path $proyecto 'foxpack.lock'), '{"lockVersion": 1, "libraries": []}', $utf8)
 
 # ---------------------------------------------------------------------------
-"probar-desatendido de FoxPack, commit $(git -C (Split-Path -Parent $PSScriptRoot) rev-parse --short HEAD), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $(if ($MaquinaLimpia) { 'MAQUINA LIMPIA' } else { 'ENCIMA' })"
+"probar-desatendido de FoxPack, commit $(Get-Commit (Split-Path -Parent $PSScriptRoot)), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $(if ($MaquinaLimpia) { 'MAQUINA LIMPIA' } else { 'ENCIMA' })"
 "setup: $Setup $((Get-Item $Setup).Length) bytes SHA256 $((Get-FileHash $Setup -Algorithm SHA256).Hash)"
 Show-Firma $Setup
 "logs de los setups en: $Salida"
