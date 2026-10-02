@@ -43,6 +43,11 @@
 #define Publicador "irwinrodriguez.dev"
 #define Dist       "..\dist"
 
+; Los idiomas, con los nombres de [Languages], para foxstack-clientes.iss (al final).
+#define FsLangEs "es"
+#define FsLangEn "en"
+#define FsLangDe "de"
+
 #define Version ""
 #define Linea ""
 #define FichMan FileOpen(AddBackslash(SourcePath) + Dist + "\foxpack.exe.commands.txt")
@@ -401,3 +406,5 @@ begin
   RegWriteExpandStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                             'Path', Ruta);
 end;
+
+#include AddBackslash(SourcePath) + "..\..\FoxStack\installers\foxstack-clientes.iss"
