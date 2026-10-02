@@ -268,6 +268,8 @@ New-Item -Path $stackKey -Force | Out-Null
 # delante un FICHERO donde va su carpeta: no la puede crear.
 "  7a. C:\Programas\FoxStack es un FICHERO: el setup de FoxStack falla y FoxPack se instala igual"
 Remove-Item $stackKey -Recurse -ErrorAction SilentlyContinue
+# Desinstalado FoxStack, su carpeta sigue con providers\foxpack (FoxPack sigue instalado): fuera.
+if (Test-Path $stack) { Remove-Item -LiteralPath $stack -Recurse -Force }
 [IO.File]::WriteAllText($stack, 'no es una carpeta: probar-desatendido de FoxPack, paso 7a', $utf8)
 $c = Invoke-Setup $Setup (Join-Path $Salida '7a-stack-falla.log')
 "  exit $c"
