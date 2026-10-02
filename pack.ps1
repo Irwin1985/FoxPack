@@ -1,5 +1,6 @@
 # pack.ps1 -- arma el zip de despliegue de foxpack
-# Generado por FoxForge el 09/25/26 02:40:47 PM
+# Generado por FoxForge el 10/02/26 06:03:45 PM
+# FOXCLI-PACK 1  (version de la plantilla: si FoxForge trae una mas nueva, ofrece ponerla al dia)
 #
 # dist\ es donde se COMPILA, y ahi queda todo: los binarios que hacen falta
 # para ejecutar, los subproductos del BUILD DLL y el host generico sin
@@ -18,6 +19,14 @@
 #     VFP 9:          vfp9r.dll + msvcr71.dll
 #     VFP Advanced:   VFPAR.DLL + msvcr100.dll
 #   VFP9RENU.DLL · vfp9resn.dll  sus recursos, los mismos para los dos
+#   Nexum.dll                    lee el sello de FoxCli del manifiesto (FoxCli
+#                                1.3.0 o mas). Sin el, tu CLI funciona igual
+#                                pero sale en evaluacion.
+#   foxpack.mcp.exe            el servidor MCP de tu CLI: la misma CLI para un
+#   foxpack.mcp.exe.manifest   agente (Claude, por ejemplo). Su manifiesto es
+#                                copia del de la CLI, porque Windows lo busca
+#                                por el nombre del .exe. Pide el runtime de .NET
+#                                10 x86 en el puesto. Con -NoMcp se queda fuera.
 #
 #   El msvcr lo IMPORTAN el runtime y tu propia DLL. En una maquina con VFP
 #   instalado lo aporta el sistema y no se nota que falta; en una sin VFP, sin
@@ -29,6 +38,7 @@
 #                     queda en el proyecto para poder recompilar sin FoxForge
 #                     delante, pero en un puesto son 40 KB de un segundo
 #                     ejecutable a un guion de distancia del bueno.
+#   foxcli-mcp.exe    lo mismo para foxpack.mcp.exe.
 #   foxpack.tlb     la type library, y el registro para regsvr32. Solo hacen
 #   foxpack.VBR     falta para registrar o importar el COM, que aqui no se
 #                     hace: la activacion es por manifiesto.
@@ -38,10 +48,14 @@
 #
 # Uso:  .\pack.ps1                    -> foxpack-dist.zip junto al proyecto
 #       .\pack.ps1 -Out C:\ruta.zip
+#       .\pack.ps1 -NoMcp              -> sin el servidor MCP
 
 [CmdletBinding()]
 param(
-    [string]$Out = ""
+    [string]$Out = "",
+    # Deja fuera foxpack.mcp.exe y su manifiesto: para un puesto que solo
+    # usa la CLI, o que no tiene el runtime de .NET 10.
+    [switch]$NoMcp
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +81,14 @@ $necesarios = @(
     "VFP9RENU.DLL",
     "vfp9resn.dll"
 ) + $runtime
+# Solo si esta: un proyecto con un host anterior a FoxCli 1.3.0 no lo tiene.
+if (Test-Path (Join-Path $dist "Nexum.dll")) { $necesarios += "Nexum.dll" }
+# El servidor MCP, si el proyecto lo tiene (FoxForge 0.4.0 o mas) y no se pide
+# dejarlo fuera. Los dos ficheros van juntos o no va ninguno.
+if (-not $NoMcp -and (Test-Path (Join-Path $dist "foxpack.mcp.exe"))) {
+    $necesarios += "foxpack.mcp.exe"
+    $necesarios += "foxpack.mcp.exe.manifest"
+}
 
 $faltan = @()
 foreach ($f in $necesarios) {

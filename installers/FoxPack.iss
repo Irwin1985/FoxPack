@@ -124,6 +124,13 @@ en.WelcomeLabel2=FoxPack installs libraries into Visual FoxPro projects, downloa
 es.WelcomeLabel2=FoxPack instala librerías en proyectos de Visual FoxPro, bajadas de GitHub con la versión fija.%n%nEs un comando de consola: al terminar, abre una consola en la carpeta de tu proyecto y escribe "foxpack add jsonfox".
 de.WelcomeLabel2=FoxPack installiert Bibliotheken in Visual-FoxPro-Projekte, von GitHub geladen und mit fester Version.%n%nEs ist ein Konsolenbefehl: Öffne nach der Installation eine Konsole im Projektordner und tippe "foxpack add jsonfox".
 
+[InstallDelete]
+; Sin vfp9resn.dll desde la 0.1.2. Con ella, en un Windows en espanol el runtime de VFP
+; contesta en espanol, y como C:\Programas\FoxPack esta en el PATH tambien la encuentran las
+; CLIs de FoxKit, que la quitan a proposito (los mensajes de VFP son contrato, en ingles).
+; Se borra la que dejo la 0.1.1 al actualizar encima.
+Type: files; Name: "{app}\vfp9resn.dll"
+
 [Files]
 Source: "{#Dist}\foxpack.exe";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\foxpack.dll";              DestDir: "{app}"; Flags: ignoreversion
@@ -135,7 +142,6 @@ Source: "{#Dist}\Nexum.dll";                DestDir: "{app}"; Flags: ignoreversi
 Source: "{#Dist}\vfp9r.dll";                DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\msvcr71.dll";              DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Dist}\VFP9RENU.DLL";             DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Dist}\vfp9resn.dll";             DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md";                     DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE";                       DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\foxpack.md";               DestDir: "{app}\docs"; Flags: ignoreversion
