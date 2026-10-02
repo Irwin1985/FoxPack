@@ -344,6 +344,32 @@ begin
   Result := Pos(';' + Uppercase(Carpeta) + ';', ';' + Uppercase(LeerPath()) + ';') = 0;
 end;
 
+// Al desinstalar, el proveedor se quita solo si es NUESTRO: su provider.json
+// apunta a un exe de esta carpeta. Uno que alguien registro a mano con el
+// mismo id y otro exe se queda (como FoxKit.iss, ronda 93 del canal FoxStack).
+procedure QuitarProveedor(Stack: String);
+var
+  Carpeta, Nuestra: String;
+  Json: AnsiString;
+begin
+  Carpeta := Stack + '\providers\foxpack';
+  if not DirExists(Carpeta) then
+    Exit;
+  // La carpeta de FoxPack como va escrita en el JSON: las barras, dobladas.
+  Nuestra := ExpandConstant('{app}\');
+  StringChangeEx(Nuestra, '\', '\\', True);
+  if LoadStringFromFile(Carpeta + '\provider.json', Json) and
+     (Pos(Uppercase(Nuestra), Uppercase(String(Json))) = 0) then
+  begin
+    Log('FoxPack: ' + Carpeta + ' no apunta a ' + ExpandConstant('{app}') + '; se queda');
+    Exit;
+  end;
+  if DelTree(Carpeta, True, True, True) then
+    Log('FoxPack: quitado ' + Carpeta + '; FoxStack se queda')
+  else
+    Log('FoxPack: no se pudo quitar ' + Carpeta);
+end;
+
 // Al desinstalar, el proveedor de FoxStack (solo el nuestro, y FoxStack se
 // queda) y la carpeta fuera del PATH (la anadio el instalador).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -354,13 +380,8 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     Stack := LeerCarpetaStack();
-    if (Stack <> '') and DirExists(Stack + '\providers\foxpack') then
-    begin
-      if DelTree(Stack + '\providers\foxpack', True, True, True) then
-        Log('FoxPack: quitado ' + Stack + '\providers\foxpack; FoxStack se queda')
-      else
-        Log('FoxPack: no se pudo quitar ' + Stack + '\providers\foxpack');
-    end;
+    if Stack <> '' then
+      QuitarProveedor(Stack);
   end;
   if CurUninstallStep <> usPostUninstall then
     Exit;

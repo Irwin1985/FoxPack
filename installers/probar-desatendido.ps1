@@ -13,16 +13,18 @@
 #   4. FoxStack (PLAN-FOXSTACK-1.0.md, F3): lo ha instalado FoxPack, y FoxPack
 #      es un proveedor suyo. foxstack list lo da ok, el servidor instalado
 #      publica foxpack_* y una llamada de verdad a foxpack_list vuelve bien.
-#      foxpack sigue funcionando por su cuenta.
+#      foxpack sigue funcionando por su cuenta. stack_info lo ve en la familia
+#      stack, ok y con sus tools (ronda 93).
 #   5. Reinstalar FoxPack: FoxStack no se reinstala (mismo hash y misma fecha
-#      del exe) y el provider.json se reescribe.
+#      del exe), el provider.json se reescribe y la carpeta esta UNA vez en el
+#      PATH (ronda 93).
 #   6. Con un FoxStack "mas nuevo" en el registro, FoxPack no lo degrada.
 #   7. Con la clave de FoxStack apuntando a una carpeta que no existe: si el
 #      setup de FoxStack falla, FoxPack se instala igual y lo dice en su log;
 #      si no, FoxStack se instala.
 #   8. Las firmas de unins000.exe de FoxPack y de FoxStack.
-#   9. Desinstala FoxPack: se va providers\foxpack\, FoxStack se queda y
-#      foxstack doctor sale 0.
+#   9. Desinstala FoxPack: se va providers\foxpack\, FoxStack y un proveedor
+#      ajeno se quedan (ronda 93), y foxstack doctor sale 0.
 #  10. Desinstala FoxStack y comprueba que el PATH del sistema queda en crudo
 #      como estaba y que no queda nada de ninguno de los dos.
 #
@@ -192,7 +194,8 @@ $llamada = @{ jsonrpc = '2.0'; id = 3; method = 'tools/call'; params = @{ name =
 [IO.File]::WriteAllLines($ent, @(
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
     '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-    $llamada), $utf8)
+    $llamada
+    '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"stack_info","arguments":{}}}'), $utf8)
 $r = Invoke-Exe $stackExe @() $ent
 $lineas = @(($r.Out -split "`n") | Where-Object { $_.Trim() -ne '' })
 $tools = @((($lineas[1] | ConvertFrom-Json).result.tools) | ForEach-Object { $_.name } | Where-Object { $_ -like 'foxpack_*' })
@@ -202,6 +205,11 @@ $res = ($lineas[2] | ConvertFrom-Json).result
 "  tools/call foxpack_list {project: <vacio>} -> isError=$($res.isError)"
 $res.content | ForEach-Object { ($_.text -split "`n") | ForEach-Object { "  | $($_.TrimEnd())" } }
 if ($res.isError -or ($res.content[0].text -notmatch 'libraries')) { Fallo "la llamada de verdad a foxpack_list no volvio bien" }
+# stack_info lo ve en su familia (stack), ok y con sus tools (ronda 93).
+$si = (($lineas[3] | ConvertFrom-Json).result.content[0].text | ConvertFrom-Json).data
+$fpi = @($si.providers.stack | Where-Object { $_.id -eq 'foxpack' })
+"  stack_info: foxpack en la familia stack: $(if ($fpi.Count -eq 1) { 'status=' + $fpi[0].status + ' tools=' + $fpi[0].tools } else { 'NO' })"
+if ($fpi.Count -ne 1 -or $fpi[0].status -ne 'ok' -or $fpi[0].tools -ne $tools.Count) { Fallo "stack_info no ve foxpack ok en la familia stack con sus $($tools.Count) tools" }
 if ($r.Err) { "  stderr del servidor:"; ($r.Err.TrimEnd() -split "`n") | ForEach-Object { "  ! $($_.TrimEnd())" } }
 
 "  foxpack por su cuenta:"
@@ -227,6 +235,10 @@ if ((Get-FileHash (Join-Path $stack 'unins000.dat')).Hash -ne $hUnins) { Fallo "
 $pj = Get-Content $prov -Raw | ConvertFrom-Json
 "  provider.json: exe=$($pj.exe), escrito $((Get-Item $prov).LastWriteTimeUtc.ToString('o'))"
 if ($pj.exe -ne "$nueva\foxpack.exe" -or (Get-Item $prov).LastWriteTimeUtc -le $fProv) { Fallo "el provider.json no se reescribio" }
+# Instalar encima de si mismo no duplica la entrada del PATH (ronda 93).
+$veces = @((Get-PathCrudo) -split ';' | Where-Object { $_ -eq $nueva }).Count
+"  PATH del sistema: $nueva aparece $veces vez/veces"
+if ($veces -ne 1) { Fallo "tras reinstalar, $nueva esta $veces veces en el PATH" }
 
 # 6 ---------------------------------------------------------------------------
 "== 6. con un FoxStack 'mas nuevo' en el registro (9.9.9), FoxPack no lo degrada"
@@ -277,7 +289,11 @@ Show-Firma (Join-Path $nueva 'unins000.exe')
 Show-Firma (Join-Path $stack 'unins000.exe')
 
 # 9 ---------------------------------------------------------------------------
-"== 9. desinstalar FoxPack: se va su proveedor y FoxStack se queda"
+"== 9. desinstalar FoxPack: se va su proveedor y FoxStack se queda, y un proveedor ajeno tambien"
+# Un proveedor de otro producto (ronda 93): tiene que seguir ahi despues.
+$ajeno = Join-Path $stack 'providers\ajeno'
+New-Item -ItemType Directory -Force $ajeno | Out-Null
+[IO.File]::WriteAllText((Join-Path $ajeno 'provider.json'), '{"id": "ajeno", "kind": "cli", "family": "stack", "exe": "C:\\no\\esta\\ajeno.exe"}', $utf8)
 $c = Invoke-Setup (Join-Path $nueva "unins000.exe") (Join-Path $Salida '9-desinstalar-foxpack.log')
 "  exit $c"
 if ($c -ne 0) { Fallo "desinstalar FoxPack: exit $c" }
@@ -285,6 +301,10 @@ for ($i = 0; $i -lt 60 -and ((Test-Path "$nueva\foxpack.exe") -or (((Get-PathCru
 Show-LogFoxPack (Join-Path $Salida '9-desinstalar-foxpack.log')
 if (Test-Path (Split-Path $prov)) { Fallo "sigue providers\foxpack\" } else { "  providers\foxpack\: no esta" }
 if (-not (Test-Path $stackExe)) { Fallo "se llevo FoxStack" } else { "  FoxStack: sigue en $stack" }
+if (-not (Test-Path (Join-Path $ajeno 'provider.json'))) { Fallo "se llevo el proveedor ajeno" } else { "  providers\ajeno\: sigue" }
+# El ajeno es de la prueba (su exe no existe): se quita a mano, antes del doctor y para que la
+# desinstalacion de FoxStack deje la maquina limpia.
+Remove-Item -LiteralPath $ajeno -Recurse -Force
 if (Test-Path $regKey) { Fallo "sigue la clave de FoxPack" }
 if (Test-Path "$nueva\foxpack.exe") { Fallo "sigue foxpack.exe" }
 if (((Get-PathCrudo) -split ';') -contains $nueva) { Fallo "FoxPack sigue en el PATH" }
