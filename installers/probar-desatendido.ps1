@@ -144,7 +144,10 @@ Show-Firma $Setup
 "logs de los setups en: $Salida"
 
 function Get-SelloStack { '{0} {1} | {2}' -f (Get-FileHash $stackExe).Hash, (Get-Item $stackExe).LastWriteTimeUtc.ToString('o'), (Get-FileHash (Join-Path $stack 'unins000.dat')).Hash }
-$verStackReg = '1.0.0'
+# La version del FoxStack que va dentro: la del foxstack.exe de FoxStack\installers\payload del arbol
+# (x.y.z de su FileVersion). Sin el arbol, la del instalado, que es lo que se puede comprobar.
+$payStack = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'FoxStack\installers\payload\foxstack.exe'
+$verStackReg = if (Test-Path $payStack) { ((Get-Item $payStack).VersionInfo.FileVersion -split '\.')[0..2] -join '.' } else { '' }
 if (-not $MaquinaLimpia) {
     "== 0. antes (encima: nada se desinstala)"
     $antes = Get-PathCrudo
@@ -232,9 +235,10 @@ $acl.Access | ForEach-Object { "  permiso:  " + $_.IdentityReference + " " + $_.
 $sreg = Get-ItemProperty $stackKey -ErrorAction SilentlyContinue
 "  FoxStack: InstallDir=$($sreg.InstallDir) Version=$($sreg.Version)"
 if (-not $sreg -or $sreg.InstallDir -ne $stack -or -not (Test-Path $stackExe)) { Fallo "FoxStack no quedo instalado en $stack" }
-if ($sreg.Version -ne '1.0.0') { Fallo "FoxStack no es 1.0.0" }
+if ($verStackReg -eq '') { $verStackReg = $sreg.Version }
+if ($sreg.Version -ne $verStackReg) { Fallo "FoxStack no es $verStackReg" }
 $r = Invoke-Exe $stackExe @('--version'); "  foxstack --version -> [$($r.Out.Trim())] exit $($r.Exit)"
-if ($r.Out.Trim() -ne 'FoxStack 1.0.0') { Fallo "foxstack --version: [$($r.Out.Trim())]" }
+if ($r.Out.Trim() -ne "FoxStack $verStackReg") { Fallo "foxstack --version: [$($r.Out.Trim())]" }
 "  provider.json:"
 if (Test-Path $prov) { (Get-Content $prov) | ForEach-Object { "  | $_" } } else { Fallo "no esta $prov" }
 $pj = Get-Content $prov -Raw | ConvertFrom-Json
