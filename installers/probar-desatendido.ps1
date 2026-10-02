@@ -4,6 +4,17 @@
 # (/VERYSILENT /SUPPRESSMSGBOXES /NORESTART), y con un plazo: un setup que no
 # sale en 180 s es un dialogo esperando a nadie, y la prueba lo mata y falla.
 #
+# DOS MODOS (ronda 103 del canal FoxStack, el mismo corte que FoxCli y FoxKit):
+#
+#   Sin parametros, ENCIMA (la maquina de trabajo): nada se desinstala. FoxPack
+#   y FoxStack pueden estar o no. Instala encima (sin /DIR) y corre los pasos
+#   3, 4, 5, 6 y 8 de abajo sobre lo instalado; si FoxStack ya estaba con la
+#   version que FoxPack lleva dentro o una mayor, comprueba que no lo toca. En
+#   el 6 devuelve al registro la version que habia.
+#
+#   -MaquinaLimpia (la del certificador; NO se corre en la de trabajo): ni
+#   FoxPack ni FoxStack al empezar, y los diez pasos:
+#
 #   1. Instala una version "vieja" en Program Files (x86)\FoxPack, como las de
 #      antes de la regla 14.
 #   2. Instala otra vez SIN /DIR: tiene que quitar la de Program Files e ir a
@@ -36,13 +47,14 @@
 #
 # Toca el registro y el PATH del sistema: hace falta administrador.
 #
-#   powershell -ExecutionPolicy Bypass -File installers\probar-desatendido.ps1 [-Setup <FoxPack-Setup-x.y.z.exe>]
+#   powershell -ExecutionPolicy Bypass -File installers\probar-desatendido.ps1 [-Setup <FoxPack-Setup-x.y.z.exe>] [-MaquinaLimpia]
 #
 # Fichero en ASCII: PowerShell 5.1 no lee bien un .ps1 con acentos.
 
 [CmdletBinding()]
 param(
     [string]$Setup,
+    [switch]$MaquinaLimpia,
     [string]$Salida = (Join-Path $env:TEMP ('foxpack-desatendido-' + (Get-Date -Format 'yyyyMMdd-HHmmss')))
 )
 
@@ -114,11 +126,41 @@ New-Item -ItemType Directory -Force $proyecto | Out-Null
 [IO.File]::WriteAllText((Join-Path $proyecto 'foxpack.lock'), '{"lockVersion": 1, "libraries": []}', $utf8)
 
 # ---------------------------------------------------------------------------
-"probar-desatendido de FoxPack, commit $(git -C (Split-Path -Parent $PSScriptRoot) rev-parse --short HEAD), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+"probar-desatendido de FoxPack, commit $(git -C (Split-Path -Parent $PSScriptRoot) rev-parse --short HEAD), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $(if ($MaquinaLimpia) { 'MAQUINA LIMPIA' } else { 'ENCIMA' })"
 "setup: $Setup $((Get-Item $Setup).Length) bytes SHA256 $((Get-FileHash $Setup -Algorithm SHA256).Hash)"
 Show-Firma $Setup
 "logs de los setups en: $Salida"
 
+function Get-SelloStack { '{0} {1} | {2}' -f (Get-FileHash $stackExe).Hash, (Get-Item $stackExe).LastWriteTimeUtc.ToString('o'), (Get-FileHash (Join-Path $stack 'unins000.dat')).Hash }
+$verStackReg = '1.0.0'
+if (-not $MaquinaLimpia) {
+    "== 0. antes (encima: nada se desinstala)"
+    $antes = Get-PathCrudo
+    $preg = Get-ItemProperty $regKey -ErrorAction SilentlyContinue
+    "  FoxPack: $(if ($preg) { $preg.Version + ' en ' + $preg.InstallDir } else { 'no esta' })"
+    $stackPrevio = $null
+    if (Test-Path $stackExe) {
+        $stackPrevio = [pscustomobject]@{ Version = (Get-ItemProperty $stackKey -ErrorAction SilentlyContinue).Version; Sello = (Get-SelloStack) }
+        "  FoxStack $($stackPrevio.Version) en $stack, foxstack.exe $((Get-FileHash $stackExe).Hash)"
+    } else { "  FoxStack: no esta" }
+    "  PATH del sistema: $(($antes -split ';').Count) entradas"
+    "== 1-2. instalar encima, sin /DIR"
+    $c = Invoke-Setup $Setup (Join-Path $Salida '2-encima.log')
+    "  exit $c"
+    if ($c -ne 0) { Fallo "instalar encima: exit $c" }
+    if (Test-Path "$vieja\foxpack.exe") { Fallo "hay una FoxPack en Program Files" }
+    if (-not (Test-Path "$nueva\foxpack.exe")) { Fallo "no esta en $nueva" }
+    Show-LogFoxPack (Join-Path $Salida '2-encima.log')
+    $dentro = ((Get-Item (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'FoxStack\installers\payload\foxstack.exe')).VersionInfo.FileVersion -split '\.')[0..2] -join '.'
+    if ($stackPrevio -and $stackPrevio.Version -and [version]$stackPrevio.Version -ge [version]$dentro) {
+        $tocado = (Get-SelloStack) -ne $stackPrevio.Sello
+        "  FoxStack que ya estaba ($($stackPrevio.Version), dentro va $dentro): $(if ($tocado) { 'SE REINSTALO' } else { 'no se toco (mismo hash, fecha y unins000.dat)' })"
+        if ($tocado) { Fallo "el instalador toco un FoxStack de version igual o mayor" }
+    }
+    $verStackReg = (Get-ItemProperty $stackKey -ErrorAction SilentlyContinue).Version
+}
+
+if ($MaquinaLimpia) {
 "== 0. antes"
 if ((Test-Path "$vieja\foxpack.exe") -or (Test-Path "$nueva\foxpack.exe")) {
     "Ya hay un FoxPack instalado ($vieja o $nueva). Desinstalalo antes de la prueba."; exit 1
@@ -144,6 +186,7 @@ if ($c -ne 0) { Fallo "instalar: exit $c" }
 if (Test-Path "$vieja\foxpack.exe") { Fallo "no quito la de Program Files" }
 if (-not (Test-Path "$nueva\foxpack.exe")) { Fallo "no instalo en $nueva" }
 Show-LogFoxPack (Join-Path $Salida '2-nueva.log')
+} # fin de 0-2 en la maquina limpia
 
 # 3 ---------------------------------------------------------------------------
 "== 3. lo instalado de FoxPack"
@@ -250,9 +293,10 @@ if ($c -ne 0) { Fallo "instalar con un FoxStack mas nuevo: exit $c" }
 Show-LogFoxPack (Join-Path $Salida '6-mas-nuevo.log')
 if ((Get-FileHash $stackExe).Hash -ne $hStack -or (Get-Item $stackExe).LastWriteTimeUtc.ToString('o') -ne $fStack) { Fallo "FoxStack se toco con uno mas nuevo puesto" } else { "  foxstack.exe: mismo hash y misma fecha" }
 if ((Get-ItemProperty $stackKey).Version -ne '9.9.9') { Fallo "la version del registro cambio" } else { "  registro: sigue 9.9.9" }
-Set-ItemProperty $stackKey -Name Version -Value '1.0.0'
-"  registro devuelto a 1.0.0"
+Set-ItemProperty $stackKey -Name Version -Value $verStackReg
+"  registro devuelto a $verStackReg"
 
+if ($MaquinaLimpia) {
 # 7 ---------------------------------------------------------------------------
 "== 7. la clave de FoxStack apuntando a una carpeta que no existe"
 "  se desinstala FoxStack (FoxPack se queda) para que no haya ninguno"
@@ -294,10 +338,22 @@ if ($sreg.InstallDir -ne $stack -or -not (Test-Path $stackExe)) { Fallo "FoxStac
 if (-not (Test-Path $prov)) { Fallo "no se escribio el provider.json" }
 if (Test-Path $noHay) { Fallo "se creo $noHay" }
 
+} # fin del 7 en la maquina limpia
+
 # 8 ---------------------------------------------------------------------------
 "== 8. las firmas de los desinstaladores"
 Show-Firma (Join-Path $nueva 'unins000.exe')
 Show-Firma (Join-Path $stack 'unins000.exe')
+foreach ($f in (Join-Path $nueva 'unins000.exe'), (Join-Path $stack 'unins000.exe'), "$nueva\foxpack.exe", $stackExe) { if ((Get-AuthenticodeSignature $f).Status -ne 'Valid') { Fallo "sin firma valida: $f" } }
+
+if (-not $MaquinaLimpia) {
+    ""
+    $veces = @((Get-PathCrudo) -split ';' | Where-Object { $_ -eq $nueva }).Count
+    "== al final: PATH del sistema $(((Get-PathCrudo) -split ';').Count) entradas (antes $(($antes -split ';').Count)); $nueva $veces vez/veces"
+    if ($fallos.Count -eq 0) { "OK: encima (pasos 3, 4, 5, 6 y 8), 0 fallos"; exit 0 }
+    $fallos | ForEach-Object { "FALLO: $_" }
+    exit 1
+}
 
 # 9 ---------------------------------------------------------------------------
 "== 9. desinstalar FoxPack: se va su proveedor y FoxStack se queda, y un proveedor ajeno tambien"
