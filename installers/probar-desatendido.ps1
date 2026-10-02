@@ -19,9 +19,10 @@
 #      del exe), el provider.json se reescribe y la carpeta esta UNA vez en el
 #      PATH (ronda 93).
 #   6. Con un FoxStack "mas nuevo" en el registro, FoxPack no lo degrada.
-#   7. Con la clave de FoxStack apuntando a una carpeta que no existe: si el
-#      setup de FoxStack falla, FoxPack se instala igual y lo dice en su log;
-#      si no, FoxStack se instala.
+#   7. a) Si el setup de FoxStack falla (su carpeta ocupada por un fichero),
+#      FoxPack se instala igual y lo dice en su log. b) Con la clave de FoxStack
+#      rota (carpeta que no existe) y una version mas nueva, FoxPack lo instala:
+#      desde FoxStack 36eefad la guarda de degradar solo cuenta con un exe.
 #   8. Las firmas de unins000.exe de FoxPack y de FoxStack.
 #   9. Desinstala FoxPack: se va providers\foxpack\, FoxStack y un proveedor
 #      ajeno se quedan (ronda 93), y foxstack doctor sale 0.
@@ -261,18 +262,26 @@ for ($i = 0; $i -lt 60 -and (Test-Path $stackExe); $i++) { Start-Sleep -Millisec
 $noHay = Join-Path $env:SystemDrive 'Programas\FoxStack-no-existe'
 New-Item -Path $stackKey -Force | Out-Null
 
-"  7a. InstallDir=$noHay y Version=9.9.9: el setup de FoxStack se niega (nunca degrada) y FoxPack sigue"
-Set-ItemProperty $stackKey -Name InstallDir -Value $noHay; Set-ItemProperty $stackKey -Name Version -Value '9.9.9'
-$c = Invoke-Setup $Setup (Join-Path $Salida '7a-clave-rota-9.log')
+# Desde FoxStack 36eefad (30-09) la guarda de degradar de FoxStack.iss solo cuenta con un
+# foxstack.exe en InstallDir: una clave rota con una version mas nueva ya no hace fallar su
+# setup. Para ver que FoxPack sigue si el setup de FoxStack FALLA (ronda 93), se le pone
+# delante un FICHERO donde va su carpeta: no la puede crear.
+"  7a. C:\Programas\FoxStack es un FICHERO: el setup de FoxStack falla y FoxPack se instala igual"
+Remove-Item $stackKey -Recurse -ErrorAction SilentlyContinue
+[IO.File]::WriteAllText($stack, 'no es una carpeta: probar-desatendido de FoxPack, paso 7a', $utf8)
+$c = Invoke-Setup $Setup (Join-Path $Salida '7a-stack-falla.log')
 "  exit $c"
 if ($c -ne 0) { Fallo "FoxPack no se instalo con el setup de FoxStack fallando: exit $c" }
-Show-LogFoxPack (Join-Path $Salida '7a-clave-rota-9.log')
-if (-not (Select-String -Path (Join-Path $Salida '7a-clave-rota-9.log') -Pattern 'FoxPack se instala sin el' -Quiet)) { Fallo "el log no dice que FoxPack se instala sin FoxStack" }
-if (Test-Path $stackExe) { Fallo "FoxStack se instalo con 9.9.9 en el registro" }
+Show-LogFoxPack (Join-Path $Salida '7a-stack-falla.log')
+if (-not (Select-String -Path (Join-Path $Salida '7a-stack-falla.log') -Pattern 'FoxPack se instala sin el' -Quiet)) { Fallo "el log no dice que FoxPack se instala sin FoxStack" }
+if (Test-Path $stackExe) { Fallo "FoxStack se instalo con su carpeta ocupada por un fichero" }
 if (-not (Test-Path "$nueva\foxpack.exe")) { Fallo "FoxPack no esta" }
+Remove-Item -LiteralPath $stack -Force
+Remove-Item $stackKey -Recurse -ErrorAction SilentlyContinue
+New-Item -Path $stackKey -Force | Out-Null
 
-"  7b. InstallDir=$noHay y Version=1.0.0: FoxPack instala FoxStack"
-Set-ItemProperty $stackKey -Name Version -Value '1.0.0'
+"  7b. InstallDir=$noHay y Version=9.9.9 (una clave rota y mas nueva): FoxPack instala FoxStack"
+Set-ItemProperty $stackKey -Name InstallDir -Value $noHay; Set-ItemProperty $stackKey -Name Version -Value '9.9.9'
 $c = Invoke-Setup $Setup (Join-Path $Salida '7b-clave-rota.log')
 "  exit $c"
 if ($c -ne 0) { Fallo "instalar con la clave rota: exit $c" }
