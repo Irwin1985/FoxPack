@@ -70,6 +70,10 @@ Tag that commit with the same version (`v1.0`). Anyone can then install it with
 `foxpack add github:you/mylib`. To install it by name, add it to the
 [index](https://github.com/Irwin1985/foxpack-index).
 
+Your `README.md` is the library's manual, for people and for AI agents (FoxStack serves
+it to them). [docs/library-template.md](docs/library-template.md) has the sections to
+write, ready to copy.
+
 ## Exit codes
 
 | Code | Meaning |
