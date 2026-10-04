@@ -44,6 +44,10 @@ has all of them.
   replaces the old one when every file has arrived.
 - **No code is run.** Installing a library copies files; nothing of the library
   executes.
+- **The manual comes with it.** When the repository has a `README.md`, FoxPack installs it
+  next to the code, in `lib\<library>\README.md`, and records it in `foxpack.lock` like the
+  other files: it is the manual of that exact version. `add` and `update` say where it is,
+  so whoever writes code with the library (a person or an AI agent) reads it first.
 
 ## With FoxForge
 

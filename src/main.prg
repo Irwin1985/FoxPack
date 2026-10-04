@@ -30,7 +30,8 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
     *!* Install a library into lib\ and record it in foxpack.lock
     *!* Without a version, the latest tag of the repository. A repository that
     *!* is not in the index (github:user/repo) is installed only after you
-    *!* confirm it.
+    *!* confirm it. The library's README.md, its manual, comes with it
+    *!* when the repository has one.
     *!* @tcLibrary <>        jsonfox, jsonfox@13.1 or github:user/repo
     *!* @tcProject -p =.     Project folder
     *!* @tlYes     -y        Confirm without asking (for scripts)
@@ -109,6 +110,7 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
         loLib = THIS.oInstalada
         IF ISNULL(loLib)
             Console.WriteLine(THIS.cNombreInstalado + " " + loEtq.cVersion + " is already installed")
+            THIS.DecirManual(lcCarpeta, THIS.cNombreInstalado)
             RETURN EXIT_OK
         ENDIF
 
@@ -121,6 +123,7 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
         IF !EMPTY(THIS.cUsoInstalada)
             Console.WriteLine("Use it with: " + THIS.cUsoInstalada)
         ENDIF
+        THIS.DecirManual(lcCarpeta, loLib.cNombre)
         RETURN EXIT_OK
     ENDPROC
 
@@ -232,6 +235,7 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
                 loLib.cNombre, tlForce)
             IF lnSalida = EXIT_OK
                 Console.WriteLine("updated     " + loLib.cNombre + " " + lcAntes + " -> " + loEtq.cVersion)
+                THIS.DecirManual(lcCarpeta, loLib.cNombre)
             ELSE
                 lnRes = lnSalida
             ENDIF
@@ -477,7 +481,7 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
     *-- THIS.cUsoInstalada; si ya estaba ese mismo commit, THIS.oInstalada
     *-- es .NULL. y THIS.cNombreInstalado dice cuál.
     PROTECTED FUNCTION InstalarEtiqueta(tcCarpeta, toCandado, toRemoto, tcRepo, toEtq, tcNombre, tlForce)
-        LOCAL lcTexto, loManif, lcVersion, lcNombre, loActual, lcCambios, loInst, loLib
+        LOCAL lcTexto, loManif, lcVersion, lcNombre, loActual, lcCambios, loInst, loLib, loOpcionales
 
         THIS.oInstalada = .NULL.
         THIS.cUsoInstalada = ""
@@ -534,8 +538,13 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
         ENDIF
 
         *-- Bajar, entera o nada, y apuntarla.
+        *-- Con su README.md si el repo lo tiene: es el manual de esa versión
+        *-- (la plantilla de FoxPack), y quien escribe código con la librería,
+        *-- persona o agente, lo encuentra en lib\ sin salir del proyecto.
+        loOpcionales = CREATEOBJECT("Collection")
+        loOpcionales.Add("README.md")
         loInst = NEWOBJECT("Instalador", "instalador.prg")
-        loLib = loInst.Instalar(tcCarpeta, lcNombre, tcRepo, toEtq.cCommit, loManif.oFicheros, .NULL.)
+        loLib = loInst.Instalar(tcCarpeta, lcNombre, tcRepo, toEtq.cCommit, loManif.oFicheros, .NULL., loOpcionales)
         IF ISNULL(loLib)
             Console.Error("foxpack: " + loInst.cFallo)
             RETURN EVL(loInst.nCodigo, EXIT_FAILED)
@@ -553,6 +562,19 @@ DEFINE CLASS FoxPackCommand AS FoxCliCommand OF foxcli.prg OLEPUBLIC
         THIS.cUsoInstalada = loManif.cUso
         RETURN EXIT_OK
     ENDFUNC
+
+
+    *-- Si la librería trae manual (lib\<librería>\README.md), dice dónde
+    *-- está: lo lee quien vaya a escribir código con ella, y un agente que
+    *-- instala la librería por FoxStack lo ve en la respuesta de foxpack_add.
+    PROTECTED PROCEDURE DecirManual(tcCarpeta, tcNombre)
+        LOCAL lcManual
+        lcManual = "lib\" + tcNombre + "\README.md"
+        IF FILE(tcCarpeta + lcManual)
+            Console.WriteLine("Manual: " + lcManual + " (the one of this version: read it before writing code with " + ;
+                tcNombre + ")")
+        ENDIF
+    ENDPROC
 
 
     *-- .T. si se puede seguir: con --yes, o si la persona dice que sí. Sin

@@ -35,7 +35,8 @@ Install a library into lib\ and record it in foxpack.lock
 
 Without a version, the latest tag of the repository. A repository that
 is not in the index (github:user/repo) is installed only after you
-confirm it.
+confirm it. The library's README.md, its manual, comes with it
+when the repository has one.
 
 ```
 foxpack add <library> [opciones]

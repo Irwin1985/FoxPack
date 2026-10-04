@@ -162,6 +162,7 @@ Test-Case "un foxpack.lock roto da exit 14 con el motivo" {
 #   mala      fake/Mala: la etiqueta dice 1.0 y foxpack.json 1.1
 #   sinmanif  fake/Sin: no tiene foxpack.json
 #   rota      fake/Rota: foxpack.json lista un fichero que no esta
+#   condoc    fake/ConDoc: v1.0 con README.md en el repo (el manual), que foxpack.json no lista
 
 function Write-Remoto { param([string]$Ruta, [string]$Texto)
     New-Item -ItemType Directory -Force -Path (Split-Path $Ruta) | Out-Null
@@ -173,7 +174,7 @@ function New-Remoto {
     Write-Remoto (Join-Path $r "index.json") ('{"indexVersion": 1, "libraries": [' +
         '{"name": "jsonlib", "repo": "fake/JsonLib"}, {"name": "mala", "repo": "fake/Mala"},' +
         '{"name": "sinmanif", "repo": "fake/Sin"}, {"name": "rota", "repo": "fake/Rota"},' +
-        '{"name": "otra", "repo": "fake/Otra"}]}')
+        '{"name": "otra", "repo": "fake/Otra"}, {"name": "condoc", "repo": "fake/ConDoc"}]}')
 
     $j = Join-Path $r "repos\fake\JsonLib"
     Write-Remoto (Join-Path $j "tags.json") ('[{"name": "v1.0", "commit": {"sha": "1111111111111111111111111111111111111111"}},' +
@@ -204,6 +205,12 @@ function New-Remoto {
         Write-Remoto (Join-Path $t ($v.S + "\foxpack.json")) ('{"name": "otra", "version": "' + $v.V + '", "files": ["otra.prg"]}')
         Write-Remoto (Join-Path $t ($v.S + "\otra.prg")) ("* otra " + $v.V + "`r`n")
     }
+
+    $cd = Join-Path $r "repos\fake\ConDoc"
+    Write-Remoto (Join-Path $cd "tags.json") '[{"name": "v1.0", "commit": {"sha": "8888888888888888888888888888888888888888"}}]'
+    Write-Remoto (Join-Path $cd "8888888888888888888888888888888888888888\foxpack.json") '{"name": "condoc", "version": "1.0", "files": ["condoc.prg"], "usage": "SET PROCEDURE TO condoc.prg ADDITIVE"}'
+    Write-Remoto (Join-Path $cd "8888888888888888888888888888888888888888\condoc.prg") "* condoc 1.0`r`n"
+    Write-Remoto (Join-Path $cd "8888888888888888888888888888888888888888\README.md") ("# ConDoc`r`n`r`nThe manual of condoc 1.0, with " + [char]241 + ".`r`n")
 
     $o = Join-Path $r "repos\fake\Rota"
     Write-Remoto (Join-Path $o "tags.json") '[{"name": "v1.0", "commit": {"sha": "5555555555555555555555555555555555555555"}}]'
@@ -299,6 +306,47 @@ Test-Case "add github: sin --yes y sin nadie delante no instala; con --yes si" {
     $r = Invoke-Fp @("add", "github:fake/JsonLib@1.0", "--yes") $d -Remote $rem
     if ($r.Code -ne 0) { return "con --yes: exit $($r.Code) $($r.Err)" }
     if ((Get-Lock $d).libraries[0].repo -ne "fake/JsonLib") { return "el candado no dice el repo" }
+}
+
+Test-Case "add: el README.md del repo va a lib\<libreria>\, al candado, y la salida dice que es el manual" {
+    $rem = New-Remoto; $d = New-Vacio "doc1"
+    $r = Invoke-Fp @("add", "condoc") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if (-not (Test-Path (Join-Path $d "lib\condoc\README.md"))) { return "falta lib\condoc\README.md" }
+    if ($r.Out -notmatch 'Manual: lib\\condoc\\README\.md') { return "la salida no dice donde esta el manual: [$($r.Out)]" }
+    $lib = (Get-Lock $d).libraries[0]
+    $paths = @($lib.files | ForEach-Object { $_.path })
+    if ($paths -notcontains "README.md") { return "el candado no apunta el README: $($paths -join ',')" }
+    $esperado = (Get-FileHash (Join-Path $rem "repos\fake\ConDoc\8888888888888888888888888888888888888888\README.md") -Algorithm SHA256).Hash.ToLower()
+    $sha = ($lib.files | Where-Object { $_.path -eq "README.md" }).sha256
+    if ($sha -ne $esperado) { return "sha256 del README $sha, esperaba $esperado" }
+    $v = Invoke-Fp @("verify") $d -Remote $rem
+    if ($v.Code -ne 0 -or $v.Out -notmatch "2 file\(s\) checked") { return "verify: exit $($v.Code) [$($v.Out)]" }
+}
+
+Test-Case "add: sin README.md en el repo instala igual y no habla de manual" {
+    $rem = New-Remoto; $d = New-Vacio "doc2"
+    $r = Invoke-Fp @("add", "jsonlib") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if ($r.Out -match "Manual:") { return "habla de un manual que no hay: [$($r.Out)]" }
+    if (Test-Path (Join-Path $d "lib\jsonlib\README.md")) { return "dejo un README.md que el repo no tiene" }
+}
+
+Test-Case "add de una libreria ya instalada sigue diciendo donde esta el manual" {
+    $rem = New-Remoto; $d = New-Vacio "doc3"
+    $null = Invoke-Fp @("add", "condoc") $d -Remote $rem
+    $r = Invoke-Fp @("add", "condoc") $d -Remote $rem
+    if ($r.Code -ne 0 -or $r.Out -notmatch "already installed") { return "segunda vez: exit $($r.Code) [$($r.Out)]" }
+    if ($r.Out -notmatch 'Manual: lib\\condoc\\README\.md') { return "no dice donde esta el manual: [$($r.Out)]" }
+}
+
+Test-Case "restore repone el README.md que se borro" {
+    $rem = New-Remoto; $d = New-Vacio "doc4"
+    $null = Invoke-Fp @("add", "condoc") $d -Remote $rem
+    Remove-Item (Join-Path $d "lib\condoc\README.md")
+    $r = Invoke-Fp @("restore") $d -Remote $rem
+    if ($r.Code -ne 0) { return "exit $($r.Code): $($r.Err)" }
+    if (-not (Test-Path (Join-Path $d "lib\condoc\README.md"))) { return "no lo repuso" }
 }
 
 Test-Case "restore repone lo borrado con los mismos bytes, y deja en paz lo que esta bien" {

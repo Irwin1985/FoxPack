@@ -33,10 +33,14 @@ DEFINE CLASS Instalador AS Custom
     *-- Instala tcNombre bajando toRutas (Collection de rutas del repo) de
     *-- tcRepo en tcCommit. Si toShas trae los SHA-256 esperados (mismo
     *-- orden), un fichero que no coincida hace fallar la instalación: es
-    *-- lo que usa restore. Devuelve una LibreriaCandado con los hashes de
-    *-- lo instalado, o .NULL. con cFallo y nCodigo.
-    FUNCTION Instalar(tcCarpeta, tcNombre, tcRepo, tcCommit, toRutas, toShas)
+    *-- lo que usa restore. toOpcionales (Collection, puede no venir) son
+    *-- rutas que el repo puede no tener, como el README.md: si están, se
+    *-- bajan y se apuntan como las demás; si no, se sigue sin ellas.
+    *-- Devuelve una LibreriaCandado con los hashes de lo instalado, o
+    *-- .NULL. con cFallo y nCodigo.
+    FUNCTION Instalar(tcCarpeta, tcNombre, tcRepo, tcCommit, toRutas, toShas, toOpcionales)
         LOCAL lcLib, lcTemp, lcDestino, lcRuta, lcSha, lnI, loLib, llBien, loErr, loFso
+        LOCAL loTodas, lnObligatorias
 
         THIS.cFallo = ""
         THIS.nCodigo = 0
@@ -51,15 +55,34 @@ DEFINE CLASS Instalador AS Custom
             RETURN .NULL.
         ENDIF
 
-        llBien = .T.
+        *-- Primero las que pide el foxpack.json, y detrás las opcionales
+        *-- que no estén ya entre ellas.
+        loTodas = CREATEOBJECT("Collection")
         FOR lnI = 1 TO toRutas.Count
-            lcRuta = toRutas.Item(lnI)
+            loTodas.Add(toRutas.Item(lnI))
+        ENDFOR
+        lnObligatorias = loTodas.Count
+        IF VARTYPE(toOpcionales) == "O"
+            FOR lnI = 1 TO toOpcionales.Count
+                IF !THIS.Contiene(toRutas, toOpcionales.Item(lnI))
+                    loTodas.Add(toOpcionales.Item(lnI))
+                ENDIF
+            ENDFOR
+        ENDIF
+
+        llBien = .T.
+        FOR lnI = 1 TO loTodas.Count
+            lcRuta = loTodas.Item(lnI)
             lcDestino = lcTemp + CHRTRAN(lcRuta, "/", "\")
             IF !THIS.CrearCarpeta(ADDBS(JUSTPATH(lcDestino)))
                 llBien = .F.
                 EXIT
             ENDIF
             IF !THIS.oRemoto.BajarFichero(tcRepo, tcCommit, lcRuta, lcDestino)
+                IF lnI > lnObligatorias AND THIS.oRemoto.lNoExiste
+                    *-- Una opcional que el repo no tiene: no es un fallo.
+                    LOOP
+                ENDIF
                 THIS.cFallo = THIS.oRemoto.cFallo
                 THIS.nCodigo = 11
                 llBien = .F.
@@ -72,7 +95,7 @@ DEFINE CLASS Instalador AS Custom
                 llBien = .F.
                 EXIT
             ENDIF
-            IF VARTYPE(toShas) == "O" AND !(lcSha == LOWER(toShas.Item(lnI)))
+            IF VARTYPE(toShas) == "O" AND lnI <= toShas.Count AND !(lcSha == LOWER(toShas.Item(lnI)))
                 THIS.cFallo = lcRuta + " from " + tcRepo + "@" + LEFT(tcCommit, 7) + ;
                     " is not the file foxpack.lock recorded (SHA-256 differs)"
                 THIS.nCodigo = 11
@@ -107,6 +130,19 @@ DEFINE CLASS Instalador AS Custom
 
         THIS.EscribirGitattributes(lcLib)
         RETURN loLib
+    ENDFUNC
+
+
+    *-- .T. si toRutas ya trae tcRuta, sin mirar mayúsculas ni el tipo de barra.
+    PROTECTED FUNCTION Contiene(toRutas, tcRuta)
+        LOCAL lnI, lcRuta
+        lcRuta = LOWER(CHRTRAN(tcRuta, "\", "/"))
+        FOR lnI = 1 TO toRutas.Count
+            IF LOWER(CHRTRAN(toRutas.Item(lnI), "\", "/")) == lcRuta
+                RETURN .T.
+            ENDIF
+        ENDFOR
+        RETURN .F.
     ENDFUNC
 
 

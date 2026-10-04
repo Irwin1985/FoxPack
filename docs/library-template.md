@@ -5,7 +5,7 @@ A library needs two files in the root of its repository, and nothing else:
 | File | For whom |
 |---|---|
 | `foxpack.json` | FoxPack, to install it |
-| `README.md` | People and AI agents, to use it. FoxStack serves it to agents as `foxstack://libs/<name>` |
+| `README.md` | People and AI agents, to use it. FoxPack installs it next to the code (`lib\<name>\README.md`, the manual of that version), and FoxStack serves it to agents as `foxstack://libs/<name>` |
 
 The README is the manual. There is no other document to keep in sync, so write it once,
 in English, with the sections below and in this order. An agent reads it top to bottom
