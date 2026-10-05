@@ -67,12 +67,13 @@
 #endif
 
 ; FoxStack, el que viaja dentro: el setup que deja FoxStack\installers\construir.ps1,
-; con la version del foxstack.exe que empaqueto (su payload\). FIRMADO: un setup
-; sin firma dentro de uno firmado es justo lo que para el antivirus en casa de otro.
+; con la version del foxstack.exe que empaqueto (su payload\). No hace falta que
+; venga firmado: aqui dentro es interno, se extrae a {tmp} sin Mark of the Web y
+; SmartScreen no lo mira (firma minima, regla 19 de tooling-rules.md).
 #define StackDir "..\..\FoxStack\installers"
 #define StackExe AddBackslash(SourcePath) + StackDir + "\payload\foxstack.exe"
 #if !FileExists(StackExe)
-  #error Falta FoxStack\installers\payload\foxstack.exe: construye FoxStack con su installers\construir.ps1 -Firmar
+  #error Falta FoxStack\installers\payload\foxstack.exe: construye FoxStack con su installers\construir.ps1
 #endif
 #define StackMaj 0
 #define StackMin 0
@@ -83,10 +84,7 @@
 #define SetupStack "FoxStack-Setup-" + StackVer + ".exe"
 #define SetupStackSrc StackDir + "\output\" + SetupStack
 #if !FileExists(AddBackslash(SourcePath) + SetupStackSrc)
-  #error Falta FoxStack\installers\output\FoxStack-Setup-<version>.exe: construye FoxStack con su installers\construir.ps1 -Firmar
-#endif
-#if Exec("powershell.exe", "-NoProfile -NonInteractive -Command $s=Get-AuthenticodeSignature -LiteralPath " + AddBackslash(SourcePath) + SetupStackSrc + "; if ($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notlike '*Irwin Alfredo Rodriguez Gimenez*') { exit 1 }", , 1, 0) != 0
-  #error El setup de FoxStack no lleva nuestra firma valida: construye FoxStack con su installers\construir.ps1 -Firmar
+  #error Falta FoxStack\installers\output\FoxStack-Setup-<version>.exe: construye FoxStack con su installers\construir.ps1
 #endif
 
 [Setup]
@@ -110,13 +108,15 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#Nombre} {#Version}
 LicenseFile=..\LICENSE
-; LA FIRMA, SOLO SI SE PIDE. Con /DFirmar Inno firma el setup Y el desinstalador con la
+; LA FIRMA, SOLO SI SE PIDE. Con /DFirmar Inno firma el setup, y SOLO el setup, con la
 ; SignTool 'firmar', que le da installers\construir.ps1 -Firmar en la linea de comandos
 ; (Golem\tools\firmar.ps1, certificado SSL.com IV de Irwin). Sin /DFirmar compila igual
 ; y sin gastar cuota de eSigner.
+; FIRMA MINIMA (regla 19 de tooling-rules.md): el desinstalador y lo de dist\ van sin
+; firma a proposito, porque los deja el setup y no llevan Mark of the Web.
 #ifdef Firmar
 SignTool=firmar
-SignedUninstaller=yes
+SignedUninstaller=no
 #endif
 
 [Languages]

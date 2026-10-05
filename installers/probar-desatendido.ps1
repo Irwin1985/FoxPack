@@ -34,7 +34,8 @@
 #      FoxPack se instala igual y lo dice en su log. b) Con la clave de FoxStack
 #      rota (carpeta que no existe) y una version mas nueva, FoxPack lo instala:
 #      desde FoxStack 36eefad la guarda de degradar solo cuenta con un exe.
-#   8. Las firmas de unins000.exe de FoxPack y de FoxStack.
+#   8. Las firmas de unins000.exe de FoxPack y de FoxStack, solo informadas: con la
+#      firma minima (regla 19 de tooling-rules.md) lo instalado va sin firma.
 #   9. Desinstala FoxPack: se va providers\foxpack\, FoxStack y un proveedor
 #      ajeno se quedan (ronda 93), y foxstack doctor sale 0.
 #  10. Desinstala FoxStack y comprueba que el PATH del sistema queda en crudo
@@ -357,10 +358,10 @@ if (Test-Path $noHay) { Fallo "se creo $noHay" }
 } # fin del 7 en la maquina limpia
 
 # 8 ---------------------------------------------------------------------------
-"== 8. las firmas de los desinstaladores"
-Show-Firma (Join-Path $nueva 'unins000.exe')
-Show-Firma (Join-Path $stack 'unins000.exe')
-foreach ($f in (Join-Path $nueva 'unins000.exe'), (Join-Path $stack 'unins000.exe'), "$nueva\foxpack.exe", $stackExe) { if ((Get-AuthenticodeSignature $f).Status -ne 'Valid') { Fallo "sin firma valida: $f" } }
+"== 8. las firmas de lo instalado (solo se informan)"
+# Firma minima (regla 19 de tooling-rules.md): se firma solo el setup que se descarga; los
+# desinstaladores, foxpack.exe y foxstack.exe van sin firma a proposito y no es un fallo.
+foreach ($f in (Join-Path $nueva 'unins000.exe'), (Join-Path $stack 'unins000.exe'), "$nueva\foxpack.exe", $stackExe) { Show-Firma $f }
 
 if (-not $MaquinaLimpia) {
     ""

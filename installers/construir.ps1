@@ -3,19 +3,20 @@
 # Uso:  powershell -File installers\construir.ps1            (sin firmar, para probar)
 #       powershell -File installers\construir.ps1 -Firmar    (la build que se publica)
 #
-# LA FIRMA, el mismo patron que FoxAgent (installers\Build-Installer.ps1 de su repo):
-#   - Lo NUESTRO se firma en dist\, donde esta, ANTES de empaquetar: foxpack.exe (el host
-#     de FoxCli con el nombre de la CLI), foxpack.dll y Nexum.dll. Un binario sin firma
-#     dentro de un setup firmado es justo el que dispara el antivirus en casa de otro.
-#   - El runtime de VFP (vfp9r.dll, msvcr71.dll, VFP9RENU.DLL, vfp9resn.dll) es de
-#     Microsoft y NO se firma: firmar un binario ajeno seria responder de el.
-#   - Inno firma el setup y el desinstalador con la SignTool 'firmar' del .iss, que solo
-#     se activa con /DFirmar.
-#   Firma Golem\tools\firmar.ps1 (certificado SSL.com IV de Irwin). Si un fichero ya lleva
-#   nuestra firma valida no lo vuelve a firmar, y eso no gasta cuota de eSigner.
+# LA FIRMA MINIMA (regla 19 de tooling-rules.md, 2026-10-05): cada firma de eSigner se
+# paga, y se firma solo lo que el usuario descarga y ejecuta. Con -Firmar se firma UNA
+# cosa: el setup (1 firma por publicacion), con la SignTool 'firmar' del .iss, que solo
+# se activa con /DFirmar.
+#   - Lo nuestro de dist\ (foxpack.exe, foxpack.dll, Nexum.dll) va SIN firma a proposito:
+#     lo instala el setup firmado y no lleva Mark of the Web, asi que SmartScreen no lo mira.
+#   - El runtime de VFP es de Microsoft y nunca se ha firmado.
+#   - El desinstalador de Inno, tampoco (SignedUninstaller=no en FoxPack.iss).
+#   - El setup de FoxStack que va dentro no hace falta que llegue firmado: aqui es interno.
+#   Firma Golem\tools\firmar.ps1 -Publicar (certificado SSL.com IV de Irwin). Si un fichero
+#   ya lleva nuestra firma valida no lo vuelve a firmar, y eso no gasta cuota de eSigner.
 #
-# EL SELLO no se rompe al firmar: va en foxpack.exe.commands.txt (linea sel|), no en el
-# .exe, y el host no mira el hash de su propio binario.
+# EL SELLO va en foxpack.exe.commands.txt (linea sel|), no en el .exe, y el host no mira
+# el hash de su propio binario.
 #
 # Fichero en ASCII (regla 7 de tooling-rules.md).
 
@@ -28,8 +29,6 @@ $dist      = Join-Path $root 'dist'
 $iss       = Join-Path $PSScriptRoot 'FoxPack.iss'
 $iscc      = 'C:\Programas\Inno Setup 7\ISCC.exe'
 $firmarPs1 = 'C:\Desarrollo\IrwinRodriguez.dev\Golem\tools\firmar.ps1'
-
-$nuestros = @('foxpack.exe', 'foxpack.dll', 'Nexum.dll')
 
 if (-not (Test-Path $iscc)) { Write-Error "No esta $iscc"; exit 1 }
 
@@ -45,31 +44,21 @@ if (-not (Get-Content $man | Where-Object { $_ -like 'sel|*' })) {
     exit 1
 }
 
-# FoxStack, el que va dentro (FoxPack.iss lo exige firmado y no compila sin el).
+# FoxStack, el que va dentro. Su firma solo se informa: dentro de este setup es interno y
+# no hace falta (firma minima, regla 19 de tooling-rules.md).
 $stackExe = Join-Path $root '..\FoxStack\installers\payload\foxstack.exe'
-if (-not (Test-Path $stackExe)) { Write-Error "No esta ${stackExe}: construye FoxStack con su installers\construir.ps1 -Firmar"; exit 1 }
+if (-not (Test-Path $stackExe)) { Write-Error "No esta ${stackExe}: construye FoxStack con su installers\construir.ps1"; exit 1 }
 $stackVer = ((Get-Item $stackExe).VersionInfo.FileVersion -split '\.')[0..2] -join '.'
 $stackSetup = Join-Path $root "..\FoxStack\installers\output\FoxStack-Setup-$stackVer.exe"
-if (-not (Test-Path $stackSetup)) { Write-Error "No esta ${stackSetup}: construye FoxStack con su installers\construir.ps1 -Firmar"; exit 1 }
+if (-not (Test-Path $stackSetup)) { Write-Error "No esta ${stackSetup}: construye FoxStack con su installers\construir.ps1"; exit 1 }
 $f = Get-AuthenticodeSignature $stackSetup
-'dentro va {0} {1} bytes SHA256 {2} firma={3}' -f (Split-Path $stackSetup -Leaf), (Get-Item $stackSetup).Length, (Get-FileHash $stackSetup -Algorithm SHA256).Hash, $f.Status
-if ($f.Status -ne 'Valid') { Write-Error "NO SE COMPILA: el setup de FoxStack no esta firmado"; exit 1 }
+'dentro va {0} {1} bytes SHA256 {2} firma={3} (no hace falta)' -f (Split-Path $stackSetup -Leaf), (Get-Item $stackSetup).Length, (Get-FileHash $stackSetup -Algorithm SHA256).Hash, $f.Status
 
+# Lo nuestro de dist\ va SIN firma a proposito (regla 19 de tooling-rules.md): con -Firmar
+# solo se firma el setup.
 if ($Firmar) {
     if (-not (Test-Path $firmarPs1)) { Write-Error "No esta $firmarPs1"; exit 1 }
-    '== firma de lo nuestro, en dist\'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $firmarPs1 -Publicar @($nuestros | ForEach-Object { Join-Path $dist $_ })
-    if ($LASTEXITCODE -ne 0) { Write-Error "NO SE COMPILA: la firma fallo (ver arriba)"; exit 1 }
-
-    $mal = @()
-    foreach ($n in $nuestros) {
-        $f = Get-AuthenticodeSignature (Join-Path $dist $n)
-        $ok = $f.Status -eq 'Valid' -and $f.SignerCertificate.Subject -like '*Irwin Alfredo Rodriguez Gimenez*' -and $null -ne $f.TimeStamperCertificate
-        '{0,-14} firma={1} {2}' -f $n, $f.Status, $(if ($ok) { 'OK' } else { 'SIN NUESTRA FIRMA' })
-        if (-not $ok) { $mal += $n }
-    }
-    if ($mal.Count -gt 0) { Write-Error ("NO SE COMPILA: sin nuestra firma -> " + ($mal -join ', ')); exit 1 }
-    ''
+    '== ISCC /DFirmar (firma el setup y nada mas)'
     # $q y $f los sustituye Inno (comilla y fichero a firmar); en PowerShell, entre comillas simples.
     & $iscc /Q /DFirmar ('/Sfirmar=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q' + $firmarPs1 + '$q -Publicar $f') $iss
 } else {
