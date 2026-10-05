@@ -58,7 +58,7 @@ if ($f.Status -ne 'Valid') { Write-Error "NO SE COMPILA: el setup de FoxStack no
 if ($Firmar) {
     if (-not (Test-Path $firmarPs1)) { Write-Error "No esta $firmarPs1"; exit 1 }
     '== firma de lo nuestro, en dist\'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $firmarPs1 @($nuestros | ForEach-Object { Join-Path $dist $_ })
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $firmarPs1 -Publicar @($nuestros | ForEach-Object { Join-Path $dist $_ })
     if ($LASTEXITCODE -ne 0) { Write-Error "NO SE COMPILA: la firma fallo (ver arriba)"; exit 1 }
 
     $mal = @()
@@ -71,7 +71,7 @@ if ($Firmar) {
     if ($mal.Count -gt 0) { Write-Error ("NO SE COMPILA: sin nuestra firma -> " + ($mal -join ', ')); exit 1 }
     ''
     # $q y $f los sustituye Inno (comilla y fichero a firmar); en PowerShell, entre comillas simples.
-    & $iscc /Q /DFirmar ('/Sfirmar=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q' + $firmarPs1 + '$q $f') $iss
+    & $iscc /Q /DFirmar ('/Sfirmar=powershell.exe -NoProfile -ExecutionPolicy Bypass -File $q' + $firmarPs1 + '$q -Publicar $f') $iss
 } else {
     & $iscc /Q $iss
 }
